@@ -9,6 +9,11 @@ import string
 import config
 from functools import partial
 
+from kivy.config import Config
+Config.set('graphics', 'maxfps', '60')
+Config.set('graphics', 'multisamples', '0')  # AA isn't buying you much here and costs fill-rate
+Config.set('graphics', 'show_cursor', '0')   # currently commented out in your code.
+ 
 try:
   import piHardware as Hardware
 except ImportError:
@@ -32,7 +37,7 @@ from kivy.uix.boxlayout import BoxLayout
 from kivy.uix.widget import Widget
 from kivy.graphics import *
 from kivy.utils import get_color_from_hex
-from kivy.config import Config
+
 
 import viewport
 
@@ -222,7 +227,7 @@ class GameScreen(Screen):
 
     self.slots.setup(theme)
     self.slots.on_size()
-    self.timer = Clock.schedule_interval(self.update_timer, 0.004)    
+    self.timer = Clock.schedule_interval(self.update_timer, 0)    
 
   def on_keyboard_down(self, keyboard, keycode, text, modifiers):
     if keycode[1] == "spacebar": 

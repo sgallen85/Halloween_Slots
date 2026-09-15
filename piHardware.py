@@ -1,7 +1,7 @@
 import os
 import logging
 #
-# without this - sound was really delayed, not sure why
+# without this - sound was really delayed, not sure why.
 #
 
 import RPi.GPIO as GPIO
@@ -27,15 +27,23 @@ class coinDispense:
 
         self.next_servo = 0
 
-     def dispenseCoin(self,number):
-         logging.info("dispensing {} coins".format(number))
+# Rework of coin dispenser logic to use a thread to avoid blocking the main thread. 
+# This allows the coin dispense to happen in the background while the main program continues to run.
+import threading
+ 
+class coinDispense:
+    ...
+    def dispenseCoin(self, number):
+        threading.Thread(target=self._dispense_worker, args=(number,), daemon=True).start()
 
-         for i in range(number):
-           logging.info("dispense one coin on servo #{}".format(self.next_servo))
-           self.pwm.set_pwm(self.next_servo, 0, self.servo_max)
-           time.sleep(1)
-           self.pwm.set_pwm(self.next_servo, 0, self.servo_min)
-           time.sleep(1)
+    def _dispense_worker(self, number):
+        for i in range(number):
+            logging.info("dispense one coin on servo #{}".format(self.next_servo))
+            self.pwm.set_pwm(self.next_servo, 0, self.servo_max)
+            time.sleep(1)
+            self.pwm.set_pwm(self.next_servo, 0, self.servo_min)
+            time.sleep(1)
+            self.next_servo = (self.next_servo + 1) % config.num_servos
 
            self.next_servo = (self.next_servo + 1) % config.num_servos
 
