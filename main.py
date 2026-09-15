@@ -116,8 +116,8 @@ class MultiAudio:
 ##  [1.100, .942, .759, .598, .444, .273]
 
 TIER_STYLE = {
-    'spin':        {'color': (1, 1, 1, 1),      'size': 48,  'hold': 0.3, 'text': '{} treats'},
-    'double':      {'color': (1, 0.85, 0.2, 1),  'size': 72,  'hold': 0.7, 'text': 'DOUBLE!\n{} treats'},
+    'spin':        {'color': (1, 1, 1, 1),      'size': 62,  'hold': 0.3, 'text': '{} treats'},
+    'double':      {'color': (213/255, 135/255, 49/255, 1),  'size': 72,  'hold': 0.7, 'text': 'DOUBLE!\n{} treats'},
     '3 of a kind': {'color': (1, 0.55, 0.1, 1),  'size': 90,  'hold': 1.0, 'text': '3 OF A KIND!\n{} treats'},
     'jackpot':     {'color': (1, 0.25, 0.05, 1), 'size': 130, 'hold': 2.0, 'text': 'JACKPOT!!!\n{} treats'},
 }
