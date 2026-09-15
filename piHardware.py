@@ -6,7 +6,8 @@ import subprocess
 
 
 def setup():
-    os.environ['KIVY_AUDIO'] = 'sdl2'
+    # KIVY_AUDIO is set in main.py, before kivy.core.audio is imported -
+    # setting it here was too late to have any effect.
     subprocess.call(['amixer', 'cset', "numid=1,iface=MIXER,name='PCM Playback Volume'", '100'])
 
 

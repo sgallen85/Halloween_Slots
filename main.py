@@ -9,6 +9,13 @@ import string
 import config
 from functools import partial
 
+# Must happen before ANY kivy.core.audio import (including indirectly, via
+# kivy.app etc. below) - this is what makes Kivy use the SDL2 audio backend,
+# which talks to ALSA directly and doesn't need PulseAudio running. Setting
+# this later (e.g. in piHardware.setup(), which used to be the only place
+# it was set) is too late to have any effect.
+os.environ['KIVY_AUDIO'] = 'sdl2'
+
 from kivy.config import Config
 Config.set('graphics', 'maxfps', '60')
 Config.set('graphics', 'multisamples', '0')  # AA isn't buying you much here and costs fill-rate
@@ -310,12 +317,27 @@ class Slots(Widget):
         self.last_time = time.time()
 
         self.sounds = {}
-        files = glob.glob(os.path.join("themes", theme, 'audio', "*" + config.audio_extension))
-        files += glob.glob(os.path.join("themes", theme, 'audio', "*/*" + config.audio_extension))
+        # Load any mix of .wav/.ogg/.mp3 - Kivy's SDL2 audio backend plays
+        # all three natively, so there's no need to standardize on one.
+        # config.audio_extension (if set) is included too, for backward compatibility.
+        extensions = {'.wav', '.ogg', '.mp3'}
+        configured_ext = getattr(config, 'audio_extension', None)
+        if configured_ext:
+            extensions.add(configured_ext)
+        files = []
+        for ext in extensions:
+            files += glob.glob(os.path.join("themes", theme, 'audio', "*" + ext))
+            files += glob.glob(os.path.join("themes", theme, 'audio', "*/*" + ext))
         for fn in files:
             path, f = os.path.split(fn)
             f, ext = os.path.splitext(f)
-            snd = SoundLoader.load(fn)
+            try:
+                snd = SoundLoader.load(fn)
+            except Exception as e:
+                logging.warning('could not load sound {}: {}'.format(fn, e))
+                snd = None
+            if snd is None:
+                logging.warning('sound failed to load (will play silently): {}'.format(fn))
             self.sounds[f] = snd
 
     def on_size(self, *args):
@@ -339,7 +361,9 @@ class Slots(Widget):
         if self.state == 'idle':
             self.state = 'STATE_SPINNING'
             self.stopped = 0
-            self.sounds['roll'].play()
+            snd = self.sounds.get('roll')
+            if snd:
+                snd.play()
             self.start_time = time.time()
             self.last_time = time.time()
             self.landed = []
@@ -472,12 +496,37 @@ class Slots(Widget):
             self.game_logger.log_spin(self.current_theme, self.landed, match_type,
                                        pumpkin_count, payout)
 
-            if match_type != 'spin' or pumpkin_count >= 1:
-                self.sounds['win'].play()
+            self.play_result_sound(match_type, pumpkin_count)
 
             self.show_win(match_type, payout, pumpkin_count)
             coinDispense.dispenseCoin(payout)
             self.state = 'idle'
+
+    def play_result_sound(self, match_type, pumpkin_count):
+        """Prefers an icon-specific sound for doubles/triples and a
+        dedicated jackpot sound, falling back to the generic 'win' sound
+        for anything not recorded yet, so missing audio never breaks a spin.
+
+        Expected filenames in the theme's audio folder (any extension):
+          jackpot            - plays on 3 pumpkins
+          win-<icon name>    - e.g. win-vampire, win-pumpkin, win-skeleton;
+                                used for BOTH a double and a triple of that icon
+        Icon names come from SYMBOL_NAMES, lowercased.
+        """
+        snd = None
+        if match_type == 'jackpot':
+            snd = self.sounds.get('jackpot')
+        elif match_type in ('double', '3 of a kind'):
+            counts = Counter(self.landed)
+            matched_symbol = max(counts, key=counts.get)
+            key = 'win-{}'.format(symbol_name(matched_symbol).lower())
+            snd = self.sounds.get(key)
+
+        if snd is None and (match_type != 'spin' or pumpkin_count >= 1):
+            snd = self.sounds.get('win')
+
+        if snd:
+            snd.play()
 
 class GameScreen(Screen):
     playing = False
@@ -609,11 +658,14 @@ class Slot(App):
         self.spacing = 0.5 * self.root.width
         self.manager.start_screen.build()
         # if we have config.theme set, let's jump right to that theme
-        try:
-           if (config.theme):
-              self.manager.start_game(config.theme)
-        except : 
-            logging.warning('no theme set')
+        theme = getattr(config, 'theme', None)
+        if not theme:
+            logging.warning('no theme set in config.py - staying on the start screen')
+        else:
+            try:
+                self.manager.start_game(theme)
+            except Exception as e:
+                logging.warning('failed to auto-start theme {!r}: {}'.format(theme, e))
 
         if 0:
           self.slots = self.root.ids.slots
