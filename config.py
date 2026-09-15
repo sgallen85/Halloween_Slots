@@ -1,6 +1,7 @@
 audio_extension='.ogg'
 #window_size=(960, 600)
-window_size=(1920, 1200)
+#window_size=(1920, 1080)
+window_size=True
 
 servo_min = 370
 servo_max = 575
