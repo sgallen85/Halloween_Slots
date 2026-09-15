@@ -7,6 +7,8 @@ servo_max = 575
 
 gpio_button = 18
 
-num_servos = 2
+num_servos = 0
 
-theme = "casablanca"
+theme = "halloween"
+
+

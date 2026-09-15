@@ -1,5 +1,5 @@
 #!/bin/bash
 
-cd /home/pi/kivySlots
+cd ~/slots/Halloween_Slots
 python main.py 1>&2 2>>error_log &
 
