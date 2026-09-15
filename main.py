@@ -58,26 +58,6 @@ Builder.load_string('''
         text: "Slots"
         font_size: '128sp'
         pos_hint: {'center_x': .5, 'center_y': .7}
-
-    GridLayout:
-        id: _buttons
-        size_hint: .10, .40
-        pos_hint: {'center_x': .5, 'center_y': .3}
-        cols: 1
-
-Builder.load_string('''
-<StartScreen>:
-    buttons: _buttons
-    name: "Start Screen"
-    canvas:
-        Color:
-            hsv: .5, .5, .3
-        Rectangle:
-            size: self.size
-    Label:
-        text: "Slots"
-        font_size: '128sp'
-        pos_hint: {'center_x': .5, 'center_y': .7}
     GridLayout:
         id: _buttons
         size_hint: .10, .40
@@ -119,32 +99,6 @@ class MultiAudio:
         self.buf[self._next].play()
         self._next = (self._next + 1) % len(self.buf)
 
-
-class Strip(Rectangle):
-  def __init__(self, img, **kwargs):
-    super(Strip, self).__init__(**kwargs)
-
-    self.texture = img.texture
-    self.texture.wrap = 'repeat'
-    
-  def add_uv(self, canvas, val):
-    self.set_uv(canvas, self.tex_coords[1] - val)
-
-  def set_uv(self, canvas, val):
-    u = 0
-    v = val
-    w = 1
-    h = -.85
-    self.tex_coords = [u, v, u+w, v, u+w, v+h, u, v+h]
-
-  def strip_pos(self):
-    return int((1.18-self.tex_coords[1]) / .165) % 6
-
-  def slot_to_uv(self, slot):
-    return 1.18 - (slot * .165)
-
-  def get_uv(self):
-    return (self.tex_coords[0], self.tex_coords[1])
 
 ##  [1.100, .942, .759, .598, .444, .273]
 
@@ -327,25 +281,25 @@ class GameScreen(Screen):
         self.slots.setup(theme)
         self.slots.game_screen = self
         self.slots.on_size()
-        self.timer = Clock.schedule_interval(self.update_timer, 0)  
+        self.timer = Clock.schedule_interval(self.update_timer, 0)
 
-  def on_keyboard_down(self, keyboard, keycode, text, modifiers):
-    if keycode[1] == "spacebar": 
-      self.slots.start_spin()
-    if keycode[1] == "q":
-      self.manager.current = "Start Screen"
+    def on_keyboard_down(self, keyboard, keycode, text, modifiers):
+        if keycode[1] == "spacebar":
+            self.slots.start_spin()
+        if keycode[1] == "q":
+            self.manager.current = "Start Screen"
 
-  def update_timer(self, i=None, val=None):
-    if self.manager.hardwareButton.checkButton():
-        self.slots.start_spin()
+    def update_timer(self, i=None, val=None):
+        if self.manager.hardwareButton.checkButton():
+            self.slots.start_spin()
 
-    self.slots.update()
-    if not self.playing:
-        return  # don't move bird or pipes
+        self.slots.update()
+        if not self.playing:
+            return  # don't move bird or pipes
 
-    if self.manager.test_game_over():
-        snd_game_over.play()
-        self.playing = False
+        if self.manager.test_game_over():
+            snd_game_over.play()
+            self.playing = False
 
 class StartScreen(Screen):
   def __init__(self, **kwargs):
