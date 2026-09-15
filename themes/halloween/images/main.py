@@ -104,11 +104,7 @@ Builder.load_string('''
                 font_size: '110sp'
                 bold: True
                 color: 1, 1, 1, 1
-                size_hint: (1, 1)
                 pos_hint: {'center_x': .5, 'center_y': .5}
-                text_size: self.size
-                halign: 'center'
-                valign: 'middle'
 ''')
 
 # 
@@ -256,8 +252,8 @@ class Slots(Widget):
 
     # How wide the drawn-in bar extends past each reel's own edges, and how
     # opaque it is. Tweak to taste.
-    BAR_PAD = 0
-    BAR_COLOR = (1, 1, 1, 0.68)
+    BAR_PAD = 40
+    BAR_COLOR = (1, 1, 1, 0.85)
 
     def __init__(self, **kwargs):
         super(Slots, self).__init__(**kwargs)

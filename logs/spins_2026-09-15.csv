@@ -18,3 +18,38 @@ timestamp,theme,reel1,reel2,reel3,result,pumpkin_count,payout
 2026-09-15 15:12:59,halloween,Pumpkin,Skeleton,Skeleton,double,1,8
 2026-09-15 15:13:07,halloween,Broom,Ghost,Skeleton,spin,0,2
 2026-09-15 15:13:12,halloween,Sickle,Skeleton,Bat,spin,0,2
+2026-09-15 15:20:50,halloween,Vampire,Sickle,Spiderweb,spin,0,2
+2026-09-15 15:22:06,halloween,Spiderweb,Mummy,Vampire,spin,0,2
+2026-09-15 15:23:44,halloween,Sickle,Skeleton,Ghost,spin,0,2
+2026-09-15 15:23:49,halloween,Cat,Spiderweb,Skeleton,spin,0,2
+2026-09-15 15:26:18,halloween,Cat,Spiderweb,Pumpkin,spin,1,4
+2026-09-15 15:28:45,halloween,Vampire,Mummy,Vampire,double,0,4
+2026-09-15 15:28:52,halloween,Broom,Sickle,Mummy,spin,0,2
+2026-09-15 15:41:30,halloween,Hat,Hat,Hat,3 of a kind,0,12
+2026-09-15 15:41:35,halloween,Cat,Cat,Cat,3 of a kind,0,12
+2026-09-15 15:41:40,halloween,Ghost,Ghost,Skeleton,double,0,4
+2026-09-15 15:41:47,halloween,Skeleton,Ghost,Skeleton,double,0,4
+2026-09-15 15:56:53,halloween,Spiderweb,Spiderweb,Spiderweb,3 of a kind,0,12
+2026-09-15 16:01:20,halloween,Broom,Broom,Broom,3 of a kind,0,12
+2026-09-15 16:01:28,halloween,Sickle,Bat,Bat,double,0,4
+2026-09-15 16:02:29,halloween,Mummy,Hat,Broom,spin,0,2
+2026-09-15 16:02:37,halloween,Ghost,Bat,Ghost,double,0,4
+2026-09-15 16:04:10,halloween,Bat,Bat,Bat,3 of a kind,0,12
+2026-09-15 16:05:48,halloween,Skeleton,Hat,Coffin,spin,0,2
+2026-09-15 16:05:55,halloween,Pumpkin,Pumpkin,Hat,double,2,12
+2026-09-15 16:13:20,halloween,Pumpkin,Pumpkin,Pumpkin,jackpot,3,20
+2026-09-15 16:13:29,halloween,Broom,Broom,Broom,3 of a kind,0,12
+2026-09-15 16:13:37,halloween,Spiderweb,Pumpkin,Bat,spin,1,4
+2026-09-15 16:13:44,halloween,Coffin,Cat,Hat,spin,0,2
+2026-09-15 16:13:50,halloween,Broom,Spiderweb,Spiderweb,double,0,4
+2026-09-15 16:13:58,halloween,Skeleton,Sickle,Skeleton,double,0,4
+2026-09-15 16:14:04,halloween,Pumpkin,Skeleton,Mummy,spin,1,4
+2026-09-15 16:14:12,halloween,Hat,Hat,Hat,3 of a kind,0,12
+2026-09-15 16:14:20,halloween,Pumpkin,Pumpkin,Spiderweb,double,2,12
+2026-09-15 16:14:27,halloween,Skeleton,Ghost,Vampire,spin,0,2
+2026-09-15 16:14:33,halloween,Cat,Sickle,Sickle,double,0,4
+2026-09-15 16:14:40,halloween,Sickle,Sickle,Sickle,3 of a kind,0,12
+2026-09-15 16:14:47,halloween,Broom,Hat,Broom,double,0,4
+2026-09-15 16:14:55,halloween,Mummy,Vampire,Mummy,double,0,4
+2026-09-15 16:15:04,halloween,Ghost,Ghost,Cat,double,0,4
+2026-09-15 16:15:12,halloween,Bat,Pumpkin,Pumpkin,double,2,12

@@ -11,6 +11,7 @@ gpio_button = 18
 num_servos = 0
 
 theme = "halloween"
+background_file = 'halloween2.jpg'
 
 pumpkin_symbol = 5
 
