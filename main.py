@@ -77,8 +77,8 @@ Builder.load_string('''
         FloatLayout:
             id: _win_banner
             size_hint: (1, None)
-            height: 170
-            pos_hint: {'center_x': .5, 'y': .03}
+            height: 230
+            pos_hint: {'center_x': .5, 'y': .2}
             opacity: 0
             canvas.before:
                 Color:
@@ -89,7 +89,7 @@ Builder.load_string('''
             Label:
                 id: _win_label
                 text: ""
-                font_size: '48sp'
+                font_size: '110sp'
                 bold: True
                 color: 1, 1, 1, 1
                 pos_hint: {'center_x': .5, 'center_y': .5}
