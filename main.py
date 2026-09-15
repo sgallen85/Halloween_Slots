@@ -19,7 +19,10 @@ if config.window_size:
 
 try:
   import piHardware as Hardware
-except ImportError:
+except ImportError as e:
+  logging.warning("piHardware failed to import ({}) - falling back to nullHardware. "
+                   "The physical button and any hardware output will NOT work. "
+                   "Run: python3 -c \"import piHardware\"  to see the real error.".format(e))
   import nullHardware as Hardware
 
 from collections import Counter

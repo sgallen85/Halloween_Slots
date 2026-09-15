@@ -1,45 +1,27 @@
 import os
 import logging
-import threading
-#
-# without this - sound was really delayed, not sure why
-#
 import RPi.GPIO as GPIO
-import time
 import config
 import subprocess
 
-# Import the PCA9685 module.
-import Adafruit_PCA9685
 
 def setup():
     os.environ['KIVY_AUDIO'] = 'sdl2'
     subprocess.call(['amixer', 'cset', "numid=1,iface=MIXER,name='PCM Playback Volume'", '100'])
 
+
 class coinDispense:
+    """
+    No automated physical payout hardware is connected. This just logs what
+    would have been dispensed, so payouts are still visible in the console
+    for debugging, without needing any servo/PCA9685 hardware or I2C setup.
+    """
     def __init__(self):
-        self.pwm = Adafruit_PCA9685.PCA9685()
-        # Configure min and max servo pulse lengths
-        self.servo_min = config.servo_min  # Min pulse length out of 4096
-        self.servo_max = config.servo_max  # Max pulse length out of 4096
-        # Set frequency to 60hz, good for servos.
-        self.pwm.set_pwm_freq(60)
-        self.next_servo = 0
+        pass
 
     def dispenseCoin(self, number):
-        # kick off dispensing on a background thread so it never blocks
-        # the Kivy UI/render loop (each coin takes ~2 seconds of sleep)
-        threading.Thread(target=self._dispense_worker, args=(number,), daemon=True).start()
+        logging.info("payout: {} treats (no physical dispenser configured)".format(number))
 
-    def _dispense_worker(self, number):
-        logging.info("dispensing {} coins".format(number))
-        for i in range(number):
-            logging.info("dispense one coin on servo #{}".format(self.next_servo))
-            self.pwm.set_pwm(self.next_servo, 0, self.servo_max)
-            time.sleep(1)
-            self.pwm.set_pwm(self.next_servo, 0, self.servo_min)
-            time.sleep(1)
-            self.next_servo = (self.next_servo + 1) % config.num_servos
 
 class hardwareButton:
     def __init__(self):
@@ -54,7 +36,7 @@ class hardwareButton:
                 self.debounce = False
             return False
         if input_state == False:
-            logging.warn('Button Pressed')
+            logging.warning('Button Pressed')
             self.debounce = True
             return True
         return False
