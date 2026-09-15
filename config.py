@@ -11,4 +11,4 @@ num_servos = 0
 
 theme = "halloween"
 
-
+pumpkin_symbol = 5
