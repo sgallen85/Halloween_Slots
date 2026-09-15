@@ -13,7 +13,9 @@ from kivy.config import Config
 Config.set('graphics', 'maxfps', '60')
 Config.set('graphics', 'multisamples', '0')  # AA isn't buying you much here and costs fill-rate
 Config.set('graphics', 'show_cursor', '0')   # currently commented out in your code.
- 
+if config.window_size:
+    Config.set('graphics', 'fullscreen', 'auto')
+
 try:
   import piHardware as Hardware
 except ImportError:
@@ -394,8 +396,8 @@ def main(argv, stdout, environ):
                     datefmt="%m/%d %H:%M:%S", level=args.log_level)
 
   #Config.set('graphics', 'show_cursor', '0')
-  if config.window_size:
-    Config.set('graphics', 'fullscreen', '1')
+  #if config.window_size:
+   # Config.set('graphics', 'fullscreen', '1')
     #Window.size = config.window_size
 
   Window.clearcolor = get_color_from_hex("000000")
