@@ -2,7 +2,7 @@
 from __future__ import division
 
 import random
-import os, sys, time, math, logging, argparse, glob, subprocess
+import os, sys, time, math, logging, argparse, glob, subprocess, csv
 
 import string
 
@@ -14,8 +14,17 @@ Config.set('graphics', 'maxfps', '60')
 Config.set('graphics', 'multisamples', '0')  # AA isn't buying you much here and costs fill-rate
 Config.set('graphics', 'show_cursor', '0')   # currently commented out in your code.
 Config.set('kivy', 'exit_on_escape', '0')    # replaced with our own hard-exit handler below
-if config.window_size:
+if config.window_size is True:
+    # fullscreen at the display's native resolution
     Config.set('graphics', 'fullscreen', 'auto')
+elif isinstance(config.window_size, (tuple, list)) and len(config.window_size) == 2:
+    # windowed at an explicit size - handy for testing on a laptop
+    Config.set('graphics', 'fullscreen', '0')
+    Config.set('graphics', 'width', str(config.window_size[0]))
+    Config.set('graphics', 'height', str(config.window_size[1]))
+else:
+    # window_size = False (or unset) - plain windowed mode, Kivy's default size
+    Config.set('graphics', 'fullscreen', '0')
 
 try:
   import piHardware as Hardware
@@ -27,7 +36,6 @@ except ImportError as e:
 
 from collections import Counter
 from kivy.animation import Animation
-from kivy.metrics import sp
 
 from kivy.app import App
 from kivy.uix.screenmanager import ScreenManager, Screen, FadeTransition
@@ -81,7 +89,7 @@ Builder.load_string('''
         FloatLayout:
             id: _win_banner
             size_hint: (1, None)
-            height: 230
+            height: 300
             pos_hint: {'center_x': .5, 'y': .2}
             opacity: 0
             canvas.before:
@@ -104,6 +112,60 @@ Builder.load_string('''
 # should this be global?
 coinDispense = Hardware.coinDispense()
 
+# Human-readable names for each strip slot, in the same order as
+# stripbig1.png (top to bottom). Used only for the CSV game log. If you add
+# more icons later, extend this list to match, or the log just falls back
+# to numeric indices for anything past the end.
+SYMBOL_NAMES = getattr(config, 'symbol_names', [
+    'Bat', 'Cat', 'Ghost', 'Mummy', 'Sickle', 'Pumpkin',
+    'Vampire', 'Broom', 'Hat', 'Spiderweb', 'Coffin', 'Skeleton',
+])
+
+
+def symbol_name(index):
+    if 0 <= index < len(SYMBOL_NAMES):
+        return SYMBOL_NAMES[index]
+    return str(index)
+
+
+class GameLogger:
+    """Appends one CSV row per spin to logs/spins_YYYY-MM-DD.csv, so each
+    Halloween night ends up in its own dated file, ready to open in a
+    spreadsheet. Never raises - a logging problem should never crash the game."""
+
+    FIELDS = ['timestamp', 'theme', 'reel1', 'reel2', 'reel3',
+              'result', 'pumpkin_count', 'payout']
+
+    def __init__(self, log_dir='logs'):
+        self.path = None
+        try:
+            os.makedirs(log_dir, exist_ok=True)
+            date_str = time.strftime('%Y-%m-%d')
+            self.path = os.path.join(log_dir, 'spins_{}.csv'.format(date_str))
+            if not os.path.exists(self.path):
+                with open(self.path, 'w', newline='') as f:
+                    csv.writer(f).writerow(self.FIELDS)
+        except Exception as e:
+            logging.warning('game log disabled - could not set up {}: {}'.format(log_dir, e))
+            self.path = None
+
+    def log_spin(self, theme, landed, match_type, pumpkin_count, payout):
+        if self.path is None:
+            return
+        row = [
+            time.strftime('%Y-%m-%d %H:%M:%S'),
+            theme,
+            symbol_name(landed[0]), symbol_name(landed[1]), symbol_name(landed[2]),
+            match_type,
+            pumpkin_count,
+            payout,
+        ]
+        try:
+            with open(self.path, 'a', newline='') as f:
+                csv.writer(f).writerow(row)
+        except Exception as e:
+            logging.warning('failed to write game log row: {}'.format(e))
+
 
 class MultiAudio:
     _next = 0
@@ -120,10 +182,10 @@ class MultiAudio:
 ##  [1.100, .942, .759, .598, .444, .273]
 
 TIER_STYLE = {
-    'spin':        {'color': (1, 1, 1, 1),      'size': 62,  'hold': 0.3, 'text': '{} treats'},
-    'double':      {'color': (213/255, 135/255, 49/255, 1),  'size': 72,  'hold': 0.7, 'text': 'DOUBLE!\n{} treats'},
-    '3 of a kind': {'color': (1, 0.55, 0.1, 1),  'size': 90,  'hold': 1.0, 'text': '3 OF A KIND!\n{} treats'},
-    'jackpot':     {'color': (1, 0.25, 0.05, 1), 'size': 130, 'hold': 2.0, 'text': 'JACKPOT!!!\n{} treats'},
+    'spin':        {'color': (1, 1, 1, 1),      'size_frac': 0.20, 'hold': 0.3, 'text': '{} treats'},
+    'double':      {'color': (213/255, 135/255, 49/255, 1),  'size_frac': 0.24, 'hold': 0.7, 'text': 'DOUBLE!\n{} treats'},
+    '3 of a kind': {'color': (1, 0.55, 0.1, 1),  'size_frac': 0.28, 'hold': 1.0, 'text': '3 OF A KIND!\n{} treats'},
+    'jackpot':     {'color': (1, 0.25, 0.05, 1), 'size_frac': 0.34, 'hold': 2.0, 'text': 'JACKPOT!!!\n{} treats'},
 }
 
 class Strip(Rectangle):
@@ -163,7 +225,7 @@ class Slots(Widget):
     # payout amounts — tweak freely
     PAY_BASE = 2
     PAY_DOUBLE = 4
-    PAY_TRIPLE = 8
+    PAY_TRIPLE = 12
     PAY_JACKPOT = 20  # 3 pumpkins
 
     # total icons on the strip — must match stripbig1.png's icon count
@@ -191,8 +253,11 @@ class Slots(Widget):
         self.outcome_weights = getattr(config, 'win_odds', self.OUTCOME_WEIGHTS)
         self.target_symbols = [0, 0, 0]
         self.game_screen = None
+        self.current_theme = None
+        self.game_logger = GameLogger()
 
     def setup(self, theme):
+        self.current_theme = theme
         for strip in self.strips:
             del strip
         self.canvas.clear()
@@ -289,7 +354,7 @@ class Slots(Widget):
         pumpkin_count = symbols.count(self.pumpkin_symbol)
 
         if pumpkin_count == 3:
-            return 'jackpot', self.PAY_JACKPOT
+            return 'jackpot', self.PAY_JACKPOT, pumpkin_count
 
         counts = Counter(symbols)
         max_match = max(counts.values())
@@ -306,9 +371,9 @@ class Slots(Widget):
         elif pumpkin_count == 2:
             base *= 3
 
-        return match_type, base
+        return match_type, base, pumpkin_count
 
-    def show_win(self, match_type, payout):
+    def show_win(self, match_type, payout, pumpkin_count=0):
         if self.game_screen is None:
             return
         style = TIER_STYLE[match_type]
@@ -317,9 +382,15 @@ class Slots(Widget):
         label = self.game_screen.win_label
         Animation.cancel_all(banner)
         Animation.cancel_all(label)
-        label.text = style['text'].format(payout)
+        # Jackpot already implies 3 pumpkins and has its own banner text, so
+        # only call out the bonus separately for the 1- or 2-pumpkin case.
+        if pumpkin_count in (1, 2) and match_type != 'jackpot':
+            text = 'PUMPKIN BONUS!\n{} treats'.format(payout)
+        else:
+            text = style['text'].format(payout)
+        label.text = text
         label.color = style['color']
-        label.font_size = sp(30)
+        label.font_size = banner.height * 0.08  # small starting point for the pop-in animation
         banner.opacity = 0
 
         banner_anim = (Animation(opacity=1, duration=0.2)
@@ -327,7 +398,8 @@ class Slots(Widget):
                        + Animation(opacity=0, duration=0.4))
         banner_anim.start(banner)
 
-        label_anim = Animation(font_size=sp(style['size']), duration=0.25, t='out_back')
+        target_size = banner.height * style['size_frac']
+        label_anim = Animation(font_size=target_size, duration=0.25, t='out_back')
         label_anim.start(label)
 
     def update(self):
@@ -351,15 +423,16 @@ class Slots(Widget):
                 if self.stopped >= len(self.strips):
                     self.state = "FINAL"
         elif self.state == 'FINAL':
-            match_type, payout = self.calculate_payout(self.landed)
+            match_type, payout, pumpkin_count = self.calculate_payout(self.landed)
             self.last_match_type = match_type
             self.last_payout = payout
-            logging.warn('landed {} -> {} : {} treats'.format(self.landed, match_type, payout))
+            self.game_logger.log_spin(self.current_theme, self.landed, match_type,
+                                       pumpkin_count, payout)
 
-            if match_type != 'spin':
+            if match_type != 'spin' or pumpkin_count >= 1:
                 self.sounds['win'].play()
 
-            self.show_win(match_type, payout)
+            self.show_win(match_type, payout, pumpkin_count)
             coinDispense.dispenseCoin(payout)
             self.state = 'idle'
 
@@ -554,11 +627,6 @@ def main(argv, stdout, environ):
 
   logging.basicConfig(format="[%(asctime)s] %(levelname)-8s %(message)s", 
                     datefmt="%m/%d %H:%M:%S", level=args.log_level)
-
-  #Config.set('graphics', 'show_cursor', '0')
-  #if config.window_size:
-   # Config.set('graphics', 'fullscreen', '1')
-    #Window.size = config.window_size
 
   Window.clearcolor = get_color_from_hex("000000")
   

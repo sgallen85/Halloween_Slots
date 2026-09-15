@@ -1,0 +1,5 @@
+timestamp,theme,reel1,reel2,reel3,result,pumpkin_count,payout
+2026-09-15 14:50:57,halloween,Mummy,Ghost,Ghost,double,0,4
+2026-09-15 14:51:02,halloween,Cat,Sickle,Mummy,spin,0,2
+2026-09-15 14:51:09,halloween,Hat,Spiderweb,Cat,spin,0,2
+2026-09-15 14:51:14,halloween,Broom,Pumpkin,Vampire,spin,1,4

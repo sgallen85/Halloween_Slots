@@ -12,15 +12,15 @@ def setup():
 
 class coinDispense:
     """
-    No automated physical payout hardware is connected. This just logs what
-    would have been dispensed, so payouts are still visible in the console
-    for debugging, without needing any servo/PCA9685 hardware or I2C setup.
+    No automated physical payout hardware is connected. Payouts are tracked
+    in the CSV game log instead (see GameLogger in main.py), so this is a
+    no-op - candy is handed out manually.
     """
     def __init__(self):
         pass
 
     def dispenseCoin(self, number):
-        logging.info("payout: {} treats (no physical dispenser configured)".format(number))
+        pass
 
 
 class hardwareButton:
