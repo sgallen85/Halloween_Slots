@@ -68,19 +68,31 @@ Builder.load_string('''
 <GameScreen>:
     slots: _id_slots
     win_label: _win_label
+    win_banner: _win_banner
     name: "Game Screen"
     FloatLayout:
         Slots:
             id: _id_slots
             canvas:
-        Label:
-            id: _win_label
-            text: ""
-            font_size: '48sp'
-            bold: True
-            color: 1, 1, 1, 0
-            pos_hint: {'center_x': .5, 'center_y': .85}
+        FloatLayout:
+            id: _win_banner
+            size_hint: (1, None)
+            height: 170
+            pos_hint: {'center_x': .5, 'y': .03}
             opacity: 0
+            canvas.before:
+                Color:
+                    rgba: 0.12, 0.12, 0.12, 0.7
+                Rectangle:
+                    pos: self.pos
+                    size: self.size
+            Label:
+                id: _win_label
+                text: ""
+                font_size: '48sp'
+                bold: True
+                color: 1, 1, 1, 1
+                pos_hint: {'center_x': .5, 'center_y': .5}
 ''')
 
 # 
@@ -104,10 +116,10 @@ class MultiAudio:
 ##  [1.100, .942, .759, .598, .444, .273]
 
 TIER_STYLE = {
-    'spin':        {'color': (1, 1, 1, 1),      'size': 48,  'hold': 0.3, 'text': '+{} treats'},
-    'double':      {'color': (1, 0.85, 0.2, 1),  'size': 72,  'hold': 0.7, 'text': 'DOUBLE!\n+{} treats'},
-    '3 of a kind': {'color': (1, 0.55, 0.1, 1),  'size': 90,  'hold': 1.0, 'text': '3 OF A KIND!\n+{} treats'},
-    'jackpot':     {'color': (1, 0.25, 0.05, 1), 'size': 130, 'hold': 2.0, 'text': 'JACKPOT!!!\n+{} treats'},
+    'spin':        {'color': (1, 1, 1, 1),      'size': 48,  'hold': 0.3, 'text': '{} treats'},
+    'double':      {'color': (1, 0.85, 0.2, 1),  'size': 72,  'hold': 0.7, 'text': 'DOUBLE!\n{} treats'},
+    '3 of a kind': {'color': (1, 0.55, 0.1, 1),  'size': 90,  'hold': 1.0, 'text': '3 OF A KIND!\n{} treats'},
+    'jackpot':     {'color': (1, 0.25, 0.05, 1), 'size': 130, 'hold': 2.0, 'text': 'JACKPOT!!!\n{} treats'},
 }
 
 class Strip(Rectangle):
@@ -233,16 +245,20 @@ class Slots(Widget):
         if self.game_screen is None:
             return
         style = TIER_STYLE[match_type]
+        banner = self.game_screen.win_banner
         label = self.game_screen.win_label
         label.text = style['text'].format(payout)
         label.color = style['color']
         label.font_size = sp(30)
-        label.opacity = 0
+        banner.opacity = 0
 
-        anim = (Animation(opacity=1, font_size=sp(style['size']), duration=0.25, t='out_back')
-                + Animation(duration=style['hold'])
-                + Animation(opacity=0, duration=0.4))
-        anim.start(label)
+        banner_anim = (Animation(opacity=1, duration=0.2)
+                       + Animation(duration=style['hold'])
+                       + Animation(opacity=0, duration=0.4))
+        banner_anim.start(banner)
+
+        label_anim = Animation(font_size=sp(style['size']), duration=0.25, t='out_back')
+        label_anim.start(label)
 
     def update(self):
         dt = time.time() - self.start_time
