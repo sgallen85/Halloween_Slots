@@ -216,8 +216,18 @@ class Slots(Widget):
             self.start_time = time.time()
             self.last_time = time.time()
             self.landed = []
+            self.cancel_win_banner()
         if self.state == 'key':
             self.state = 'STATE_SPINNING'
+
+    def cancel_win_banner(self):
+        if self.game_screen is None:
+            return
+        banner = self.game_screen.win_banner
+        label = self.game_screen.win_label
+        Animation.cancel_all(banner)
+        Animation.cancel_all(label)
+        banner.opacity = 0
 
     def calculate_payout(self, symbols):
         pumpkin_count = symbols.count(self.pumpkin_symbol)
@@ -249,6 +259,8 @@ class Slots(Widget):
         hold = getattr(config, 'win_banner_hold_seconds', style['hold'])
         banner = self.game_screen.win_banner
         label = self.game_screen.win_label
+        Animation.cancel_all(banner)
+        Animation.cancel_all(label)
         label.text = style['text'].format(payout)
         label.color = style['color']
         label.font_size = sp(30)
