@@ -21,6 +21,8 @@ try:
 except ImportError:
   import nullHardware as Hardware
 
+from collections import Counter
+from kivy.animation import Animation
 
 from kivy.app import App
 from kivy.uix.screenmanager import ScreenManager, Screen, FadeTransition
@@ -63,13 +65,41 @@ Builder.load_string('''
         pos_hint: {'center_x': .5, 'center_y': .3}
         cols: 1
 
+Builder.load_string('''
+<StartScreen>:
+    buttons: _buttons
+    name: "Start Screen"
+    canvas:
+        Color:
+            hsv: .5, .5, .3
+        Rectangle:
+            size: self.size
+    Label:
+        text: "Slots"
+        font_size: '128sp'
+        pos_hint: {'center_x': .5, 'center_y': .7}
+    GridLayout:
+        id: _buttons
+        size_hint: .10, .40
+        pos_hint: {'center_x': .5, 'center_y': .3}
+        cols: 1
+
 <GameScreen>:
     slots: _id_slots
+    win_label: _win_label
     name: "Game Screen"
     FloatLayout:
         Slots:
             id: _id_slots
             canvas:
+        Label:
+            id: _win_label
+            text: ""
+            font_size: '48sp'
+            bold: True
+            color: 1, 1, 1, 0
+            pos_hint: {'center_x': .5, 'center_y': .85}
+            opacity: 0
 ''')
 
 # 
@@ -118,118 +148,186 @@ class Strip(Rectangle):
 
 ##  [1.100, .942, .759, .598, .444, .273]
 
+TIER_STYLE = {
+    'spin':        {'color': (1, 1, 1, 1),      'size': '48sp',  'hold': 0.3, 'text': '+{} treats'},
+    'double':      {'color': (1, 0.85, 0.2, 1),  'size': '72sp',  'hold': 0.7, 'text': 'DOUBLE!\n+{} treats'},
+    '3 of a kind': {'color': (1, 0.55, 0.1, 1),  'size': '90sp',  'hold': 1.0, 'text': '3 OF A KIND!\n+{} treats'},
+    'jackpot':     {'color': (1, 0.25, 0.05, 1), 'size': '130sp', 'hold': 2.0, 'text': 'JACKPOT!!!\n+{} treats'},
+}
+
+class Strip(Rectangle):
+    def __init__(self, img, **kwargs):
+        super(Strip, self).__init__(**kwargs)
+        self.texture = img.texture
+        self.texture.wrap = 'repeat'
+
+    def add_uv(self, canvas, val):
+        self.set_uv(canvas, self.tex_coords[1] - val)
+
+    def set_uv(self, canvas, val):
+        u = 0
+        v = val
+        w = 1
+        h = -.85
+        self.tex_coords = [u, v, u+w, v, u+w, v+h, u, v+h]
+
+    def strip_pos(self):
+        return int((1.18-self.tex_coords[1]) / .165) % 6
+
+    def slot_to_uv(self, slot):
+        return 1.18 - (slot * .165)
+
+    def get_uv(self):
+        return (self.tex_coords[0], self.tex_coords[1])
+
 class Slots(Widget):
     state = 'idle'
-    first_stop_length=2.0
-    jackpot=0
+    first_stop_length = 2.0
+
+    # payout amounts — tweak freely
+    PAY_BASE = 2
+    PAY_DOUBLE = 4
+    PAY_TRIPLE = 8
+    PAY_JACKPOT = 20  # 3 pumpkins
 
     def __init__(self, **kwargs):
-      super(Slots, self).__init__(**kwargs)
-
-      self.strips = []
+        super(Slots, self).__init__(**kwargs)
+        self.strips = []
+        self.landed = []
+        self.last_payout = 0
+        self.last_match_type = None
+        self.pumpkin_symbol = getattr(config, 'pumpkin_symbol', 5)
+        self.game_screen = None
 
     def setup(self, theme):
-      for strip in self.strips:
-        del strip
-      self.canvas.clear()
+        for strip in self.strips:
+            del strip
+        self.canvas.clear()
+        self.start_time = time.time()
+        self.strips = []
+        with self.canvas:
+            bg = Rectangle()
+            bg.source = os.path.join("themes", theme, "images", "background.png")
+            bg.pos = (0, 0)
+            bg.size = (1920, 1080)
+            for n in range(3):
+                strip = Strip(Image(os.path.join("themes", theme, "images", "stripbig1.png")))
+                strip.set_uv(self, strip.slot_to_uv(0))
+                self.strips.append(strip)
+            Color(1, 0, 0)
+            self.payline = Rectangle()
+        self.last_time = time.time()
 
-      self.start_time=time.time()
-      self.strips = []
-
-      with self.canvas:
-        bg = Rectangle()
-        bg.source = os.path.join("themes", theme, "images", "background.png")
-        bg.pos = (0,0)
-        bg.size = (1920,1080)
-
-        for n in range(3):
-          strip = Strip(Image(os.path.join("themes", theme, "images", "stripbig1.png")))
-          strip.set_uv(self, strip.slot_to_uv(0))
-          self.strips.append(strip)
-
-        Color(1,0,0)
-        self.payline = Rectangle()
-
-      self.last_time = time.time()
-
-      ## load audio
-      self.sounds = {}
-      files = glob.glob(os.path.join("themes", theme, 'audio', "*" + config.audio_extension))
-      files += glob.glob(os.path.join("themes", theme, 'audio', "*/*" + config.audio_extension))
-      for fn in files:
-        path, f = os.path.split(fn)
-        f, ext = os.path.splitext(f)
-        snd = SoundLoader.load(fn)
-        self.sounds[f] = snd
+        self.sounds = {}
+        files = glob.glob(os.path.join("themes", theme, 'audio', "*" + config.audio_extension))
+        files += glob.glob(os.path.join("themes", theme, 'audio', "*/*" + config.audio_extension))
+        for fn in files:
+            path, f = os.path.split(fn)
+            f, ext = os.path.splitext(f)
+            snd = SoundLoader.load(fn)
+            self.sounds[f] = snd
 
     def on_size(self, *args):
-      if len(self.strips) == 0: return
-
-      cx = self.size[0]/2
-      ns = len(self.strips)
-      sw = self.size[0] / (ns*2)
-      mw = 20
-
-      sx = cx - (ns*sw+(ns-1)*mw)/2
-
-      for n, strip in enumerate(self.strips):
-        strip.pos = (sx + n*sw + (n-1)*mw, 0)
-        strip.size = (sw, self.size[1])
-
-      self.payline.pos = (50, self.size[1]/2)
-      self.payline.size = (self.size[0]-100, 10)
+        if len(self.strips) == 0: return
+        cx = self.size[0]/2
+        ns = len(self.strips)
+        sw = self.size[0] / (ns*2)
+        mw = 20
+        sx = cx - (ns*sw+(ns-1)*mw)/2
+        for n, strip in enumerate(self.strips):
+            strip.pos = (sx + n*sw + (n-1)*mw, 0)
+            strip.size = (sw, self.size[1])
+        self.payline.pos = (50, self.size[1]/2)
+        self.payline.size = (self.size[0]-100, 10)
 
     def start_spin(self):
-        if self.state=='idle':
-            self.state ='STATE_SPINNING'
+        if self.state == 'idle':
+            self.state = 'STATE_SPINNING'
             self.stopped = 0
             self.sounds['roll'].play()
-            self.start_time=time.time()
+            self.start_time = time.time()
             self.last_time = time.time()
-            self.jackpot=0
-        if self.state=='key':
-            self.state ='STATE_SPINNING'
-          
+            self.landed = []
+        if self.state == 'key':
+            self.state = 'STATE_SPINNING'
+
+    def calculate_payout(self, symbols):
+        pumpkin_count = symbols.count(self.pumpkin_symbol)
+
+        if pumpkin_count == 3:
+            return 'jackpot', self.PAY_JACKPOT
+
+        counts = Counter(symbols)
+        max_match = max(counts.values())
+
+        if max_match == 3:
+            match_type, base = '3 of a kind', self.PAY_TRIPLE
+        elif max_match == 2:
+            match_type, base = 'double', self.PAY_DOUBLE
+        else:
+            match_type, base = 'spin', self.PAY_BASE
+
+        if pumpkin_count == 1:
+            base *= 2
+        elif pumpkin_count == 2:
+            base *= 3
+
+        return match_type, base
+
+    def show_win(self, match_type, payout):
+        if self.game_screen is None:
+            return
+        style = TIER_STYLE[match_type]
+        label = self.game_screen.win_label
+        label.text = style['text'].format(payout)
+        label.color = style['color']
+        label.font_size = '30sp'
+        label.opacity = 0
+
+        anim = (Animation(opacity=1, font_size=style['size'], duration=0.25, t='out_back')
+                + Animation(duration=style['hold'])
+                + Animation(opacity=0, duration=0.4))
+        anim.start(label)
+
     def update(self):
-      dt = time.time() - self.start_time
-      dtt = time.time() - self.last_time
-      self.last_time = time.time()
+        dt = time.time() - self.start_time
+        dtt = time.time() - self.last_time
+        self.last_time = time.time()
+        if self.state == 'idle':
+            self.state = 'idle'
+        elif self.state == 'STATE_SPINNING':
+            for n in range(self.stopped, len(self.strips)):
+                v = .8 + (n*.1)
+                self.strips[n].add_uv(self, v * dtt)
+            if dt > self.first_stop_length + self.stopped + random.uniform(0, 0.8):
+                slotnum = self.strips[self.stopped].strip_pos()
+                self.strips[self.stopped].set_uv(self, self.strips[self.stopped].slot_to_uv(slotnum))
+                self.sounds['reel-icon-%d' % (slotnum+1)].play()
+                self.landed.append(slotnum)
+                self.stopped += 1
+                if self.stopped >= len(self.strips):
+                    self.state = "FINAL"
+        elif self.state == 'FINAL':
+            match_type, payout = self.calculate_payout(self.landed)
+            self.last_match_type = match_type
+            self.last_payout = payout
+            logging.warn('landed {} -> {} : {} treats'.format(self.landed, match_type, payout))
 
-      if self.state =='idle':
-        self.state='idle'
-      elif self.state =='STATE_SPINNING':
-        for n in range(self.stopped, len(self.strips)):
-          v = .8 + (n*.1)
-          self.strips[n].add_uv(self, v * dtt)
+            if match_type != 'spin':
+                self.sounds['win'].play()
 
-        # check time then switch to next state
-
-        if dt > self.first_stop_length+self.stopped +random.uniform(0,0.8):  # snap to next "unit"
-          slotnum = self.strips[self.stopped].strip_pos()
-          self.strips[self.stopped].set_uv(self, self.strips[self.stopped].slot_to_uv(slotnum))
-          # play sound for slot
-          self.sounds['reel-icon-%d' % (slotnum+1)].play()
-          if slotnum==5:
-             logging.warn('winner on {}'.format(self.stopped+1))
-             self.jackpot=self.jackpot+1
-          self.stopped += 1
-          if self.stopped >= len(self.strips):
-            self.state = "FINAL"
-
-      elif self.state =='FINAL':
-        logging.warn('total jackpot: {}'.format(self.jackpot))
-        if (self.jackpot>0): self.sounds['win'].play()
-        coinDispense.dispenseCoin(self.jackpot+1)
-        self.state='idle'
+            self.show_win(match_type, payout)
+            coinDispense.dispenseCoin(payout)
+            self.state = 'idle'
 
 class GameScreen(Screen):
-  playing = False
+    playing = False
 
-  def start_game(self, theme):
-
-    self.slots.setup(theme)
-    self.slots.on_size()
-    self.timer = Clock.schedule_interval(self.update_timer, 0)    
+    def start_game(self, theme):
+        self.slots.setup(theme)
+        self.slots.game_screen = self
+        self.slots.on_size()
+        self.timer = Clock.schedule_interval(self.update_timer, 0)  
 
   def on_keyboard_down(self, keyboard, keycode, text, modifiers):
     if keycode[1] == "spacebar": 
