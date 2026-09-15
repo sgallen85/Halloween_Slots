@@ -1,0 +1,113 @@
+[INFO   ] [Logger      ] Record log in /home/admin/.kivy/logs/kivy_26-09-15_38.txt
+[INFO   ] [Kivy        ] v2.3.1
+[INFO   ] [Kivy        ] Installed at "/home/admin/.local/lib/python3.9/site-packages/kivy/__init__.py"
+[INFO   ] [Python      ] v3.9.2 (default, May 18 2026, 18:09:43) 
+[GCC 10.2.1 20210110]
+[INFO   ] [Python      ] Interpreter at "/usr/bin/python"
+[INFO   ] [Logger      ] Purge log fired. Processing...
+[INFO   ] [Logger      ] Purge finished!
+[INFO   ] [Factory     ] 195 symbols loaded
+[INFO   ] [ImageLoaderFFPy] Using ffpyplayer 4.5.3
+[INFO   ] [Image       ] Providers: img_tex, img_dds, img_sdl2, img_pil, img_ffpyplayer 
+[INFO   ] [SoundFFPy   ] Using ffpyplayer 4.5.3
+[INFO   ] [Audio       ] Providers: audio_ffpyplayer, audio_sdl2 
+[INFO   ] [Window      ] Provider: sdl2
+[INFO   ] [GL          ] Using the "OpenGL ES 2" graphics system
+[INFO   ] [GL          ] Backend used <sdl2>
+[INFO   ] [GL          ] OpenGL version <b'2.1 Mesa 20.3.5'>
+[INFO   ] [GL          ] OpenGL vendor <b'Broadcom'>
+[INFO   ] [GL          ] OpenGL renderer <b'V3D 4.2'>
+[INFO   ] [GL          ] OpenGL parsed version: 2, 1
+[INFO   ] [GL          ] Shading version <b'1.20'>
+[INFO   ] [GL          ] Texture max size <4096>
+[INFO   ] [GL          ] Texture max units <16>
+[INFO   ] [Window      ] auto add sdl2 input provider
+[INFO   ] [Window      ] virtual keyboard not allowed, single mode, not docked
+[INFO   ] [Text        ] Provider: sdl2
+numid=1,iface=MIXER,name='Capture Volume'
+  ; type=INTEGER,access=rw------,values=2,min=0,max=65536,step=1
+  : values=100,100
+[INFO   ] [GL          ] NPOT texture support is available
+mmap() failed: Cannot allocate memory
+Failed to create permanent mapping for memfd region with ID = 401594841
+Ignoring received block reference with non-registered memfd ID = 401594841
+[WARNING] [ffpyplayer  ] SDL_OpenAudio (1 channels, 22050 Hz): Could not connect to PulseAudio server
+[ERROR  ] [ffpyplayer  ] No more channel combinations to try, audio open failed
+[CRITICAL] [ffpyplayer  ] Failed to open file '/home/admin/slots/Halloween_Slots/themes/halloween/audio/reels/reel-icon-9.ogg' or configure filtergraph
+mmap() failed: Cannot allocate memory
+Failed to create permanent mapping for memfd region with ID = 1058517150
+mmap() failed: Cannot allocate memory
+Failed to create permanent mapping for memfd region with ID = 667170471
+Ignoring received block reference with non-registered memfd ID = 667170471
+[WARNING] [ffpyplayer  ] SDL_OpenAudio (1 channels, 22050 Hz): Could not connect to PulseAudio server
+[ERROR  ] [ffpyplayer  ] No more channel combinations to try, audio open failed
+[CRITICAL] [ffpyplayer  ] Failed to open file '/home/admin/slots/Halloween_Slots/themes/halloween/audio/reels/reel-icon-12.ogg' or configure filtergraph
+mmap() failed: Cannot allocate memory
+Failed to create permanent mapping for memfd region with ID = 1677708578
+Failed to regester memfd mempool. Reason: could not attach memfd SHM ID to pipe
+mmap() failed: Cannot allocate memory
+Failed to create permanent mapping for memfd region with ID = 1058517150
+mmap() failed: Cannot allocate memory
+Failed to create permanent mapping for memfd region with ID = 2682696661
+Ignoring received block reference with non-registered memfd ID = 2682696661
+[WARNING] [ffpyplayer  ] SDL_OpenAudio (1 channels, 22050 Hz): Could not connect to PulseAudio server
+mmap() failed: Cannot allocate memory
+Failed to create permanent mapping for memfd region with ID = 4179912383
+Failed to regester memfd mempool. Reason: could not attach memfd SHM ID to pipe
+[ERROR  ] [ffpyplayer  ] No more channel combinations to try, audio open failed
+mmap() failed: Cannot allocate memory
+Failed to create permanent mapping for memfd region with ID = 1058517150
+mmap() failed: Cannot allocate memory
+Failed to create permanent mapping for memfd region with ID = 3389855926
+Ignoring received block reference with non-registered memfd ID = 3389855926
+[CRITICAL] [ffpyplayer  ] Failed to open file '/home/admin/slots/Halloween_Slots/themes/halloween/audio/reels/reel-icon-5.ogg' or configure filtergraph
+[WARNING] [ffpyplayer  ] SDL_OpenAudio (1 channels, 22050 Hz): Could not connect to PulseAudio server
+[ERROR  ] [ffpyplayer  ] No more channel combinations to try, audio open failed
+[CRITICAL] [ffpyplayer  ] Failed to open file '/home/admin/slots/Halloween_Slots/themes/halloween/audio/reels/reel-icon-6.ogg' or configure filtergraph
+mmap() failed: Cannot allocate memory
+Failed to create permanent mapping for memfd region with ID = 2700518733
+Failed to regester memfd mempool. Reason: could not attach memfd SHM ID to pipe
+mmap() failed: Cannot allocate memory
+Failed to create permanent mapping for memfd region with ID = 1058517150
+mmap() failed: Cannot allocate memory
+Failed to create permanent mapping for memfd region with ID = 382214835
+Ignoring received block reference with non-registered memfd ID = 382214835
+[WARNING] [ffpyplayer  ] SDL_OpenAudio (2 channels, 44100 Hz): Could not connect to PulseAudio server
+mmap() failed: Cannot allocate memory
+Failed to create permanent mapping for memfd region with ID = 1582257885
+Failed to regester memfd mempool. Reason: could not attach memfd SHM ID to pipe
+mmap() failed: Cannot allocate memory
+mmap() failed: Cannot allocate memory
+mmap() failed: Cannot allocate memory
+Failed to create permanent mapping for memfd region with ID = 1058517150
+mmap() failed: Cannot allocate memory
+Failed to create permanent mapping for memfd region with ID = 3131735106
+Ignoring received block reference with non-registered memfd ID = 3131735106
+[WARNING] [ffpyplayer  ] SDL_OpenAudio (1 channels, 22050 Hz): Could not connect to PulseAudio server
+[ERROR  ] [ffpyplayer  ] No more channel combinations to try, audio open failed
+[WARNING] [ffpyplayer  ] SDL_OpenAudio (1 channels, 44100 Hz): Could not connect to PulseAudio server
+[CRITICAL] [ffpyplayer  ] Failed to open file '/home/admin/slots/Halloween_Slots/themes/halloween/audio/reels/reel-icon-8.ogg' or configure filtergraph
+[ERROR  ] [ffpyplayer  ] No more channel combinations to try, audio open failed
+mmap() failed: Cannot allocate memory
+[CRITICAL] [ffpyplayer  ] Failed to open file '/home/admin/slots/Halloween_Slots/themes/halloween/audio/reels/win-vampire.ogg' or configure filtergraph
+mmap() failed: Cannot allocate memory
+[WARNING] [ffpyplayer  ] SDL_OpenAudio (1 channels, 22050 Hz): Could not connect to PulseAudio server
+[ERROR  ] [ffpyplayer  ] No more channel combinations to try, audio open failed
+[CRITICAL] [ffpyplayer  ] Failed to open file '/home/admin/slots/Halloween_Slots/themes/halloween/audio/reels/reel-icon-10.ogg' or configure filtergraph
+mmap() failed: Cannot allocate memory
+mmap() failed: Cannot allocate memory
+[WARNING] [ffpyplayer  ] SDL_OpenAudio (1 channels, 22050 Hz): Could not connect to PulseAudio server
+[ERROR  ] [ffpyplayer  ] No more channel combinations to try, audio open failed
+[CRITICAL] [ffpyplayer  ] Failed to open file '/home/admin/slots/Halloween_Slots/themes/halloween/audio/reels/reel-icon-1.ogg' or configure filtergraph
+mmap() failed: Cannot allocate memory
+mmap() failed: Cannot allocate memory
+mmap() failed: Cannot allocate memory
+mmap() failed: Cannot allocate memory
+[WARNING] [ffpyplayer  ] SDL_OpenAudio (1 channels, 22050 Hz): Could not connect to PulseAudio server
+[WARNING] [ffpyplayer  ] SDL_OpenAudio (1 channels, 22050 Hz): Could not connect to PulseAudio server
+[WARNING] no theme set
+[ERROR  ] [ffpyplayer  ] No more channel combinations to try, audio open failed
+[ERROR  ] [ffpyplayer  ] No more channel combinations to try, audio open failed
+[CRITICAL] [ffpyplayer  ] Failed to open file '/home/admin/slots/Halloween_Slots/themes/halloween/audio/reels/reel-icon-2.ogg' or configure filtergraph
+[CRITICAL] [ffpyplayer  ] Failed to open file '/home/admin/slots/Halloween_Slots/themes/halloween/audio/reels/reel-icon-3.ogg' or configure filtergraph
+[INFO   ] [Base        ] Start application main loop
