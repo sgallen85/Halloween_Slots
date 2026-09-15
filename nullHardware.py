@@ -1,23 +1,32 @@
 import time
 import logging
 
+
 def setup():
-  pass
+    pass
+
 
 class coinDispense:
-     def __init__(self):
-        # Set frequency to 60hz, good for servos.
+    """
+    Used when piHardware fails to import (e.g. testing on a Mac with no
+    RPi.GPIO). No automated physical payout hardware is connected either
+    way, so this stays quiet - payouts are tracked in the CSV game log
+    instead (see GameLogger in main.py).
+    """
+    def __init__(self):
         return
 
-     def dispenseCoin(self,number):
-            logging.warn("dispense coin:"+str(number))
-            for i in range(number):
-              logging.warn("dispense one coin")
-
+    def dispenseCoin(self, number):
+        pass
 
 
 class hardwareButton:
-     def __init__(self):
-         return
-     def checkButton(self):
+    """
+    No physical button available in this environment - always reports not
+    pressed. Use spacebar to trigger spins instead.
+    """
+    def __init__(self):
+        return
+
+    def checkButton(self):
         return False

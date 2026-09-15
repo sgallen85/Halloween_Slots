@@ -414,7 +414,14 @@ class Slots(Widget):
                 self.strips[n].add_uv(self, v * dtt)
             if dt > self.first_stop_length + self.stopped + random.uniform(0, 0.8):
                 slotnum = self.target_symbols[self.stopped]
-                self.strips[self.stopped].set_uv(self, self.strips[self.stopped].slot_to_uv(slotnum))
+                # Kivy/GL reads the strip texture's vertical axis in the
+                # opposite direction from slot_to_uv's own numbering, so the
+                # slot we *display* has to be mirrored to actually show
+                # `slotnum`. Everything else (logging, payout, sound) keeps
+                # using the un-mirrored `slotnum` - only this render call
+                # needs the flip.
+                display_slot = (self.strips[self.stopped].num_symbols - 1) - slotnum
+                self.strips[self.stopped].set_uv(self, self.strips[self.stopped].slot_to_uv(display_slot))
                 snd = self.sounds.get('reel-icon-%d' % (slotnum+1))
                 if snd:
                     snd.play()
@@ -547,7 +554,7 @@ class Slot(App):
       self.manager.current_screen.on_keyboard_down(keycode, keycode, text, modifiers)
 
     def clean_exit(self):
-      logging.warn('clean exit requested (escape)')
+      logging.warning('clean exit requested (escape)')
       try:
         Clock.unschedule(self.manager.game_screen.timer)
       except Exception:
@@ -570,7 +577,7 @@ class Slot(App):
            if (config.theme):
               self.manager.start_game(config.theme)
         except : 
-            logging.warn('no theme set')
+            logging.warning('no theme set')
 
         if 0:
           self.slots = self.root.ids.slots
