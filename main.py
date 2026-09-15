@@ -13,6 +13,7 @@ from kivy.config import Config
 Config.set('graphics', 'maxfps', '60')
 Config.set('graphics', 'multisamples', '0')  # AA isn't buying you much here and costs fill-rate
 Config.set('graphics', 'show_cursor', '0')   # currently commented out in your code.
+Config.set('kivy', 'exit_on_escape', '0')    # replaced with our own hard-exit handler below
 if config.window_size:
     Config.set('graphics', 'fullscreen', 'auto')
 
@@ -397,7 +398,26 @@ class Slot(App):
       self.manager.current_screen.on_gamepad_down(obj, gamepad, buttonid)
 
     def on_keyboard_down(self, keyboard, keycode, text, modifiers):
+      if keycode[1] == 'escape':
+        self.clean_exit()
+        return
       self.manager.current_screen.on_keyboard_down(keycode, keycode, text, modifiers)
+
+    def clean_exit(self):
+      logging.warn('clean exit requested (escape)')
+      try:
+        Clock.unschedule(self.manager.game_screen.timer)
+      except Exception:
+        pass
+      try:
+        import RPi.GPIO as GPIO
+        GPIO.cleanup()
+      except Exception:
+        pass
+      # Kivy's normal App.stop()/window teardown can occasionally hang on the
+      # Pi's KMS/DRM fullscreen driver. Rather than wait on that, terminate the
+      # process immediately once our own cleanup above has run.
+      os._exit(0)
 
     def on_start(self):
         self.spacing = 0.5 * self.root.width
