@@ -12,3 +12,5 @@ num_servos = 0
 theme = "halloween"
 
 pumpkin_symbol = 5
+
+win_banner_hold_seconds = 5.0

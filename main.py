@@ -245,6 +245,7 @@ class Slots(Widget):
         if self.game_screen is None:
             return
         style = TIER_STYLE[match_type]
+        hold = getattr(config, 'win_banner_hold_seconds', style['hold'])
         banner = self.game_screen.win_banner
         label = self.game_screen.win_label
         label.text = style['text'].format(payout)
@@ -253,7 +254,7 @@ class Slots(Widget):
         banner.opacity = 0
 
         banner_anim = (Animation(opacity=1, duration=0.2)
-                       + Animation(duration=style['hold'])
+                       + Animation(duration=hold)
                        + Animation(opacity=0, duration=0.4))
         banner_anim.start(banner)
 
