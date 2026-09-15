@@ -127,10 +127,12 @@ TIER_STYLE = {
 }
 
 class Strip(Rectangle):
-    def __init__(self, img, **kwargs):
+    def __init__(self, img, num_symbols=6, **kwargs):
         super(Strip, self).__init__(**kwargs)
         self.texture = img.texture
         self.texture.wrap = 'repeat'
+        self.num_symbols = num_symbols
+        self.slot_frac = 1.0 / num_symbols
 
     def add_uv(self, canvas, val):
         self.set_uv(canvas, self.tex_coords[1] - val)
@@ -139,14 +141,17 @@ class Strip(Rectangle):
         u = 0
         v = val
         w = 1
-        h = -.85
+        # -.85 was tuned by eye for 6 symbols. Scale it so the same number of
+        # icon-heights show through the reel window regardless of symbol
+        # count, keeping each icon the same apparent size on screen.
+        h = -0.85 * (6.0 / self.num_symbols)
         self.tex_coords = [u, v, u+w, v, u+w, v+h, u, v+h]
 
     def strip_pos(self):
-        return int((1.18-self.tex_coords[1]) / .165) % 6
+        return int((1.18-self.tex_coords[1]) / self.slot_frac) % self.num_symbols
 
     def slot_to_uv(self, slot):
-        return 1.18 - (slot * .165)
+        return 1.18 - (slot * self.slot_frac)
 
     def get_uv(self):
         return (self.tex_coords[0], self.tex_coords[1])
@@ -161,13 +166,30 @@ class Slots(Widget):
     PAY_TRIPLE = 8
     PAY_JACKPOT = 20  # 3 pumpkins
 
+    # total icons on the strip — must match stripbig1.png's icon count
+    NUM_SYMBOLS = 12
+
+    # Default odds of each spin outcome, as decimal percentages (should add
+    # up to 1.0, e.g. 0.43 = 43%). Override in config.py with a `win_odds`
+    # dict to change these without touching this file. The payout amounts
+    # above are completely separate and untouched by this.
+    OUTCOME_WEIGHTS = {
+        'none':    0.43,
+        'double':  0.30,
+        'triple':  0.25,
+        'jackpot': 0.02,
+    }
+
     def __init__(self, **kwargs):
         super(Slots, self).__init__(**kwargs)
         self.strips = []
         self.landed = []
         self.last_payout = 0
         self.last_match_type = None
+        self.num_symbols = getattr(config, 'num_symbols', self.NUM_SYMBOLS)
         self.pumpkin_symbol = getattr(config, 'pumpkin_symbol', 5)
+        self.outcome_weights = getattr(config, 'win_odds', self.OUTCOME_WEIGHTS)
+        self.target_symbols = [0, 0, 0]
         self.game_screen = None
 
     def setup(self, theme):
@@ -182,7 +204,8 @@ class Slots(Widget):
             bg.pos = (0, 0)
             bg.size = (1920, 1080)
             for n in range(3):
-                strip = Strip(Image(os.path.join("themes", theme, "images", "stripbig1.png")))
+                strip = Strip(Image(os.path.join("themes", theme, "images", "stripbig1.png")),
+                               num_symbols=self.num_symbols)
                 strip.set_uv(self, strip.slot_to_uv(0))
                 self.strips.append(strip)
             Color(1, 0, 0)
@@ -220,8 +243,38 @@ class Slots(Widget):
             self.last_time = time.time()
             self.landed = []
             self.cancel_win_banner()
+            self.target_symbols = self.pick_outcome()
         if self.state == 'key':
             self.state = 'STATE_SPINNING'
+
+    def pick_outcome(self):
+        """Decide the spin's result up front (weighted), then figure out
+        which 3 landed symbols realize that result. The reels still spin and
+        stop with the same visual timing as before — they just land on this
+        predetermined result instead of wherever the scroll happens to be."""
+        outcomes = list(self.outcome_weights.keys())
+        weights = list(self.outcome_weights.values())
+        outcome = random.choices(outcomes, weights=weights, k=1)[0]
+
+        all_symbols = list(range(self.num_symbols))
+        non_pumpkin = [s for s in all_symbols if s != self.pumpkin_symbol]
+
+        if outcome == 'jackpot':
+            return [self.pumpkin_symbol] * 3
+        elif outcome == 'triple':
+            sym = random.choice(non_pumpkin)
+            return [sym] * 3
+        elif outcome == 'double':
+            pair_sym = random.choice(all_symbols)
+            odd_sym = random.choice([s for s in all_symbols if s != pair_sym])
+            symbols = [pair_sym, pair_sym, odd_sym]
+            random.shuffle(symbols)
+            return symbols
+        else:  # 'none' - guarantee 3 distinct symbols, i.e. no match at all
+            while True:
+                picks = [random.choice(all_symbols) for _ in range(3)]
+                if len(set(picks)) == 3:
+                    return picks
 
     def cancel_win_banner(self):
         if self.game_screen is None:
@@ -288,9 +341,11 @@ class Slots(Widget):
                 v = .8 + (n*.1)
                 self.strips[n].add_uv(self, v * dtt)
             if dt > self.first_stop_length + self.stopped + random.uniform(0, 0.8):
-                slotnum = self.strips[self.stopped].strip_pos()
+                slotnum = self.target_symbols[self.stopped]
                 self.strips[self.stopped].set_uv(self, self.strips[self.stopped].slot_to_uv(slotnum))
-                self.sounds['reel-icon-%d' % (slotnum+1)].play()
+                snd = self.sounds.get('reel-icon-%d' % (slotnum+1))
+                if snd:
+                    snd.play()
                 self.landed.append(slotnum)
                 self.stopped += 1
                 if self.stopped >= len(self.strips):

@@ -15,3 +15,11 @@ theme = "halloween"
 pumpkin_symbol = 5
 
 win_banner_hold_seconds = 5.0
+
+#configure win precentages
+win_odds = {
+    'none':    0.43,
+    'double':  0.30,
+    'triple':  0.25,
+    'jackpot': 0.02,
+}
