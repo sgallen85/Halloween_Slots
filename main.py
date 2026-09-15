@@ -23,6 +23,7 @@ except ImportError:
 
 from collections import Counter
 from kivy.animation import Animation
+from kivy.metrics import sp
 
 from kivy.app import App
 from kivy.uix.screenmanager import ScreenManager, Screen, FadeTransition
@@ -103,10 +104,10 @@ class MultiAudio:
 ##  [1.100, .942, .759, .598, .444, .273]
 
 TIER_STYLE = {
-    'spin':        {'color': (1, 1, 1, 1),      'size': '48sp',  'hold': 0.3, 'text': '+{} treats'},
-    'double':      {'color': (1, 0.85, 0.2, 1),  'size': '72sp',  'hold': 0.7, 'text': 'DOUBLE!\n+{} treats'},
-    '3 of a kind': {'color': (1, 0.55, 0.1, 1),  'size': '90sp',  'hold': 1.0, 'text': '3 OF A KIND!\n+{} treats'},
-    'jackpot':     {'color': (1, 0.25, 0.05, 1), 'size': '130sp', 'hold': 2.0, 'text': 'JACKPOT!!!\n+{} treats'},
+    'spin':        {'color': (1, 1, 1, 1),      'size': 48,  'hold': 0.3, 'text': '+{} treats'},
+    'double':      {'color': (1, 0.85, 0.2, 1),  'size': 72,  'hold': 0.7, 'text': 'DOUBLE!\n+{} treats'},
+    '3 of a kind': {'color': (1, 0.55, 0.1, 1),  'size': 90,  'hold': 1.0, 'text': '3 OF A KIND!\n+{} treats'},
+    'jackpot':     {'color': (1, 0.25, 0.05, 1), 'size': 130, 'hold': 2.0, 'text': 'JACKPOT!!!\n+{} treats'},
 }
 
 class Strip(Rectangle):
@@ -235,10 +236,10 @@ class Slots(Widget):
         label = self.game_screen.win_label
         label.text = style['text'].format(payout)
         label.color = style['color']
-        label.font_size = '30sp'
+        label.font_size = sp(30)
         label.opacity = 0
 
-        anim = (Animation(opacity=1, font_size=style['size'], duration=0.25, t='out_back')
+        anim = (Animation(opacity=1, font_size=sp(style['size']), duration=0.25, t='out_back')
                 + Animation(duration=style['hold'])
                 + Animation(opacity=0, duration=0.4))
         anim.start(label)
