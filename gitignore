@@ -1,0 +1,24 @@
+# macOS
+.DS_Store
+themes/.DS_Store
+themes/halloween/.DS_Store
+themes/halloween/images/.DS_Store
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+
+# Virtual environments - never commit these, they contain
+# platform-specific compiled binaries (Mac venv won't run on the Pi, etc.)
+venv/
+.venv/
+
+# Game logs - personal/session data, regenerated automatically each run
+logs/
+
+# Debug/diagnostic files - not part of the game itself
+dpkg.log
+error_log
+errormsg.txt
+*.bak
