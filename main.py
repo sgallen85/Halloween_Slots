@@ -20,7 +20,7 @@ os.environ['KIVY_AUDIO'] = 'sdl2'
 # ffmpeg/libav upgrade can leave the pip-installed ffpyplayer package
 # (compiled against the old version) mismatched with the new one, which can
 # hang indefinitely on the very first image load rather than erroring out.
-os.environ['KIVY_IMAGE'] = 'pil,sdl2'
+os.environ['KIVY_IMAGE'] = 'sdl2'
 
 from kivy.config import Config
 Config.set('graphics', 'maxfps', '60')
