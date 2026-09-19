@@ -1,7 +1,7 @@
 audio_extension='.ogg'
-window_size=(960, 540)
-#window_size=(1920, 1080)
-window_size=False
+#window_size=(960, 540)
+window_size=(1920, 1080)
+window_size=True
 
 servo_min = 370
 servo_max = 575
@@ -21,6 +21,6 @@ win_banner_hold_seconds = 5.0
 win_odds = {
     'none':    0.0,
     'double':  0.0,
-    'triple':  0.25,
-    'jackpot': 0.75,
+    'triple':  0.995,
+    'jackpot': 0.05,
 }
