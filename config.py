@@ -25,4 +25,4 @@ win_odds = {
     'jackpot': 0.05,
 }
 
-idle_music_timeout = 10.0
+idle_music_timeout = 30.0
