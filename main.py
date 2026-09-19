@@ -356,6 +356,7 @@ class Slots(Widget):
             print(">>> TRACE: payline done, closing canvas block", flush=True)
         print(">>> TRACE: canvas block closed successfully", flush=True)
         self.last_time = time.time()
+        print(">>> TRACE: starting sound loading", flush=True)
 
         self.sounds = {}
         # Load any mix of .wav/.ogg/.mp3 - Kivy's SDL2 audio backend plays
@@ -369,7 +370,9 @@ class Slots(Widget):
         for ext in extensions:
             files += glob.glob(os.path.join("themes", theme, 'audio', "*" + ext))
             files += glob.glob(os.path.join("themes", theme, 'audio', "*/*" + ext))
+        print(">>> TRACE: found {} sound files: {}".format(len(files), files), flush=True)
         for fn in files:
+            print(">>> TRACE: loading sound file: {}".format(fn), flush=True)
             path, f = os.path.split(fn)
             f, ext = os.path.splitext(f)
             try:
@@ -377,6 +380,7 @@ class Slots(Widget):
             except Exception as e:
                 logging.warning('could not load sound {}: {}'.format(fn, e))
                 snd = None
+            print(">>> TRACE: finished loading {} (result: {})".format(fn, snd), flush=True)
             if snd is None:
                 logging.warning('sound failed to load (will play silently): {}'.format(fn))
             self.sounds[f] = snd
