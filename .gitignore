@@ -11,3 +11,4 @@ themes/halloween/.DS_Store
 logs/spins_2026-09-15.csv
 themes/halloween/audio/.DS_Store
 themes/pizza/.DS_Store
+*.csv
