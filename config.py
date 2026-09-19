@@ -24,3 +24,5 @@ win_odds = {
     'triple':  0.995,
     'jackpot': 0.05,
 }
+
+idle_music_timeout = 10.0

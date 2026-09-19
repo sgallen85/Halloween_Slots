@@ -395,6 +395,10 @@ class Slots(Widget):
         'jackpot': 0.02,
     }
 
+    # Seconds of no spins before idle background music starts. Override with
+    # idle_music_timeout in config.py.
+    IDLE_MUSIC_TIMEOUT = 30.0
+
     # Default background image filename, in themes/<theme>/images/. Override
     # with `background_file` in config.py to use a different image without
     # touching this file. The original 'background.png' already has its
@@ -428,6 +432,17 @@ class Slots(Widget):
         self.background_bars = getattr(config, 'background_bars',
                                         self.background_file != self.BACKGROUND_FILE)
         self.bar_rects = []
+
+        # Idle background music - starts after IDLE_MUSIC_TIMEOUT seconds of
+        # no spins, pauses (and remembers position) the moment a spin starts,
+        # and resumes from that exact position next time it goes idle again.
+        self.idle_music_timeout = getattr(config, 'idle_music_timeout', self.IDLE_MUSIC_TIMEOUT)
+        self.music_playlist = []
+        self.music_index = 0
+        self.music_sound = None
+        self.music_paused = False
+        self.music_paused_pos = 0.0
+        self.last_activity_time = time.time()
 
     def setup(self, theme):
         self.current_theme = theme
@@ -482,6 +497,76 @@ class Slots(Widget):
                 logging.warning('sound failed to load (will play silently): {}'.format(fn))
             self.sounds[f] = snd
 
+        self._load_background_music(theme)
+
+    def _load_background_music(self, theme):
+        """Scans themes/<theme>/audio/background/ for music files and builds
+        a shuffled playlist. Playback itself is driven from update() via
+        _update_background_music()."""
+        extensions = {'.wav', '.ogg', '.mp3'}
+        configured_ext = getattr(config, 'audio_extension', None)
+        if configured_ext:
+            extensions.add(configured_ext)
+        files = []
+        for ext in extensions:
+            files += glob.glob(os.path.join("themes", theme, 'audio', 'background', "*" + ext))
+        random.shuffle(files)
+        self.music_playlist = files
+        self.music_index = 0
+        self.music_sound = None
+        self.music_paused = False
+        self.music_paused_pos = 0.0
+        self.last_activity_time = time.time()
+
+    def _pause_background_music(self):
+        if self.music_sound is not None and self.music_sound.state == 'play':
+            try:
+                self.music_paused_pos = self.music_sound.get_pos()
+            except Exception:
+                self.music_paused_pos = 0.0
+            self.music_sound.stop()
+            self.music_paused = True
+
+    def _start_music_track(self):
+        if not self.music_playlist:
+            return
+        path = self.music_playlist[self.music_index]
+        snd = SoundLoader.load(path)
+        if snd is None:
+            logging.warning('background music failed to load: {}'.format(path))
+            self._advance_music_track()
+            return
+        self.music_sound = snd
+        self.music_paused = False
+        snd.play()
+
+    def _resume_music_track(self):
+        snd = self.music_sound
+        snd.play()
+        if self.music_paused_pos > 0:
+            try:
+                snd.seek(self.music_paused_pos)
+            except Exception:
+                pass  # not every format/provider supports seek - it'll just restart that track instead
+        self.music_paused = False
+
+    def _advance_music_track(self):
+        self.music_paused_pos = 0.0
+        self.music_index = (self.music_index + 1) % len(self.music_playlist)
+        self._start_music_track()
+
+    def _update_background_music(self):
+        if not self.music_playlist or self.state != 'idle':
+            return
+        if time.time() - self.last_activity_time < self.idle_music_timeout:
+            return
+        if self.music_sound is None:
+            self._start_music_track()
+        elif self.music_paused:
+            self._resume_music_track()
+        elif self.music_sound.state != 'play':
+            self._advance_music_track()  # previous track finished naturally
+
     def on_size(self, *args):
         if len(self.strips) == 0: return
         cx = self.size[0]/2
@@ -511,6 +596,8 @@ class Slots(Widget):
             self.landed = []
             self.cancel_win_banner()
             self.target_symbols = self.pick_outcome()
+            self._pause_background_music()
+            self.last_activity_time = time.time()
         if self.state == 'key':
             self.state = 'STATE_SPINNING'
 
@@ -670,6 +757,7 @@ class Slots(Widget):
         self.last_time = time.time()
         if self.state == 'idle':
             self.state = 'idle'
+            self._update_background_music()
         elif self.state == 'STATE_SPINNING':
             for n in range(self.stopped, len(self.strips)):
                 v = .8 + (n*.1)
