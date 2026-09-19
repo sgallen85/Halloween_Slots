@@ -1,5 +1,5 @@
 #!/bin/bash
 
 cd ~/Halloween_Slots
-python3 main.py 1>&2 2>>error_log &
+DISPLAY=:0 python3 main.py 1>&2 2>>error_log &
 
