@@ -20,9 +20,9 @@ sudo apt-get install -y \
     alsa-utils
 
 echo "=== Installing Python packages ==="
-pip3 install --upgrade pip
-pip3 install "kivy[base]==2.3.1"
-pip3 install RPi.GPIO
+pip3 install --upgrade pip --break-system-packages
+pip3 install "kivy[base]==2.3.1" --break-system-packages
+pip3 install RPi.GPIO --break-system-packages
 
 echo ""
 echo "=== Verifying install ==="
