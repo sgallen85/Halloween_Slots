@@ -18,10 +18,8 @@ fi
 source .venv/bin/activate
 
 echo "Installing Kivy (this can take a minute the first time) ..."
-pip install --upgrade pip
-# Pinned to match the version running on the Pi, so behavior stays consistent
-# between your Mac testing and the real thing.
-pip install "kivy[base]==2.3.1"
+pip3 install --upgrade pip --break-system-packages
+pip3 install "kivy[base]==2.3.1" --break-system-packages
 
 echo ""
 echo "Done. Verifying install:"
