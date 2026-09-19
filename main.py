@@ -59,6 +59,7 @@ from kivy.animation import Animation
 
 from kivy.app import App
 from kivy.uix.screenmanager import ScreenManager, Screen, FadeTransition
+from kivy.uix.floatlayout import FloatLayout
 from kivy.clock import Clock
 from kivy.core.audio import SoundLoader
 from kivy.lang import Builder
@@ -103,6 +104,7 @@ Builder.load_string('''
     win_banner: _win_banner
     win_icon_left: _win_icon_left
     win_icon_right: _win_icon_right
+    win_celebration: _win_celebration
     name: "Game Screen"
     FloatLayout:
         Slots:
@@ -145,6 +147,8 @@ Builder.load_string('''
                 keep_ratio: True
                 opacity: 0
                 pos_hint: {'center_x': .85, 'center_y': .5}
+        JackpotCelebration:
+            id: _win_celebration
 ''')
 
 # 
@@ -233,6 +237,13 @@ TIER_STYLE = {
 PUMPKIN_BONUS_COLOR = (121/255, 128/255, 70/255, 1)
 
 class Strip(Rectangle):
+    # -.85 was tuned by eye for 6 symbols; WINDOW_REFERENCE_N is that 6. The
+    # ratio between these two is also what one icon's on-screen pixel size
+    # works out to (see Slots.reel_icon_pixel_size), so they're named
+    # constants rather than inline magic numbers.
+    WINDOW_FRACTION = 0.85
+    WINDOW_REFERENCE_N = 6.0
+
     def __init__(self, img, num_symbols=6, **kwargs):
         super(Strip, self).__init__(**kwargs)
         self.texture = img.texture
@@ -247,10 +258,10 @@ class Strip(Rectangle):
         u = 0
         v = val
         w = 1
-        # -.85 was tuned by eye for 6 symbols. Scale it so the same number of
-        # icon-heights show through the reel window regardless of symbol
-        # count, keeping each icon the same apparent size on screen.
-        h = -0.85 * (6.0 / self.num_symbols)
+        # Scaled so the same number of icon-heights show through the reel
+        # window regardless of symbol count, keeping each icon the same
+        # apparent size on screen no matter how many symbols are on the strip.
+        h = -self.WINDOW_FRACTION * (self.WINDOW_REFERENCE_N / self.num_symbols)
         self.tex_coords = [u, v, u+w, v, u+w, v+h, u, v+h]
 
     def strip_pos(self):
@@ -261,6 +272,104 @@ class Strip(Rectangle):
 
     def get_uv(self):
         return (self.tex_coords[0], self.tex_coords[1])
+
+
+class JackpotCelebration(FloatLayout):
+    """Full-screen overlay of icons falling from above the screen under
+    gravity, bouncing softly off the bottom, and drifting off the left/right
+    edges to disappear - the classic 'cascade' win-screen effect, built from
+    scratch using this game's own icon art. All the physics knobs below can
+    be overridden from config.py (see the matching config_* names in
+    __init__) without touching this class."""
+
+    DURATION = 10.0
+    ICON_COUNT = 50
+    ICON_SIZE = 220
+    DRIFT_SPEED_RANGE = (150, 300)    # sideways drift speed magnitude, px/sec
+    SPAWN_HEIGHT_RANGE = (0, 2200)    # how far above the screen top icons start (staggers their fall)
+    GRAVITY = -700                    # px/sec^2, pulls downward - lower = slower/floatier fall
+    BOTTOM_RESTITUTION = 0.58         # energy kept per bottom bounce (<1 = settles over time; higher = bounces longer)
+
+    def __init__(self, **kwargs):
+        super(JackpotCelebration, self).__init__(**kwargs)
+        self.size_hint = (None, None)
+        self.size = (1920, 1080)
+        self.pos = (0, 0)
+        self.opacity = 0
+        self._bodies = []  # list of [widget, vx, vy]
+        self._update_ev = None
+        self._stop_ev = None
+
+        self.duration = getattr(config, 'jackpot_duration', self.DURATION)
+        self.icon_count = getattr(config, 'jackpot_icon_count', self.ICON_COUNT)
+        self.icon_size = getattr(config, 'jackpot_icon_size', self.ICON_SIZE)
+        self.drift_speed_range = getattr(config, 'jackpot_drift_speed_range', self.DRIFT_SPEED_RANGE)
+        self.spawn_height_range = getattr(config, 'jackpot_spawn_height_range', self.SPAWN_HEIGHT_RANGE)
+        self.gravity = getattr(config, 'jackpot_gravity', self.GRAVITY)
+        self.bottom_restitution = getattr(config, 'jackpot_bottom_restitution', self.BOTTOM_RESTITUTION)
+
+    def start(self, icon_paths, icon_size=None, count=None):
+        self.stop()
+        if not icon_paths:
+            return
+        size = icon_size if icon_size is not None else self.icon_size
+        n = count if count is not None else self.icon_count
+        for i in range(n):
+            path = random.choice(icon_paths)
+            img = ImageWidget(source=path, size=(size, size),
+                               size_hint=(None, None), allow_stretch=True, keep_ratio=True)
+            # Start above the screen (staggered height = staggered fall
+            # timing) at a random x. Icons spawned on the left half drift
+            # right as they fall, and vice versa, so they cross the screen
+            # rather than drifting randomly.
+            spawn_x = random.uniform(0, 1920 - size)
+            direction = 1 if spawn_x < (1920 - size) / 2 else -1
+            speed = random.uniform(*self.drift_speed_range)
+            vx = direction * speed
+            vy = 0
+            img.pos = (spawn_x, 1080 + random.uniform(*self.spawn_height_range))
+            self.add_widget(img)
+            self._bodies.append([img, vx, vy])
+        self.opacity = 1
+        self._update_ev = Clock.schedule_interval(self._update, 0)
+        self._stop_ev = Clock.schedule_once(self.stop, self.duration)
+
+    def _update(self, dt):
+        size = self.icon_size
+        margin = size + 50  # fully off-screen before we despawn
+        surviving = []
+        for body in self._bodies:
+            img, vx, vy = body
+            vy += self.gravity * dt
+            x, y = img.pos
+            x += vx * dt
+            y += vy * dt
+
+            if y <= 0:
+                y = 0
+                vy = abs(vy) * self.bottom_restitution
+
+            # No side walls - icons that drift past either edge just keep
+            # going and get removed once they're fully out of view.
+            if x + size < -margin or x > 1920 + margin:
+                self.remove_widget(img)
+                continue
+
+            img.pos = (x, y)
+            body[1], body[2] = vx, vy
+            surviving.append(body)
+        self._bodies = surviving
+
+    def stop(self, *args):
+        if self._update_ev:
+            self._update_ev.cancel()
+            self._update_ev = None
+        if self._stop_ev:
+            self._stop_ev.cancel()
+            self._stop_ev = None
+        self.clear_widgets()
+        self._bodies = []
+        self.opacity = 0
 
 class Slots(Widget):
     state = 'idle'
@@ -444,6 +553,35 @@ class Slots(Widget):
         banner.opacity = 0
         self.game_screen.win_icon_left.opacity = 0
         self.game_screen.win_icon_right.opacity = 0
+        self.game_screen.win_celebration.stop()
+
+    def reel_icon_pixel_size(self):
+        """The on-screen pixel size of one icon as it appears on the reels -
+        derived from Strip's own sizing math, so it stays correct even if
+        that math or the screen size ever changes."""
+        return self.size[1] / (Strip.WINDOW_FRACTION * Strip.WINDOW_REFERENCE_N)
+
+    def start_jackpot_celebration(self):
+        if self.game_screen is None or not self.current_theme:
+            return
+        icon_dir = os.path.join("themes", self.current_theme, "images", "128")
+        icon_paths = []
+        for name in SYMBOL_NAMES[:self.num_symbols]:
+            path = os.path.join(icon_dir, name + ".png")
+            if os.path.exists(path):
+                icon_paths.append(path)
+        self.game_screen.win_celebration.start(icon_paths, icon_size=self.reel_icon_pixel_size())
+
+    def start_triple_celebration(self, matched_symbol):
+        if self.game_screen is None or not self.current_theme:
+            return
+        icon_path = os.path.join("themes", self.current_theme, "images", "128",
+                                  symbol_name(matched_symbol) + ".png")
+        if not os.path.exists(icon_path):
+            return
+        self.game_screen.win_celebration.start([icon_path],
+                                                icon_size=self.reel_icon_pixel_size(),
+                                                count=20)
 
     def calculate_payout(self, symbols):
         pumpkin_count = symbols.count(self.pumpkin_symbol)
@@ -563,6 +701,12 @@ class Slots(Widget):
             self.play_result_sound(match_type, pumpkin_count)
 
             self.show_win(match_type, payout, pumpkin_count)
+            if match_type == 'jackpot':
+                self.start_jackpot_celebration()
+            elif match_type == '3 of a kind':
+                counts = Counter(self.landed)
+                matched_symbol = max(counts, key=counts.get)
+                self.start_triple_celebration(matched_symbol)
             coinDispense.dispenseCoin(payout)
             self.state = 'idle'
 
