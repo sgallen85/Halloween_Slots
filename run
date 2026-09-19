@@ -1,5 +1,5 @@
 #!/bin/bash
 
-cd ~/slots/Halloween_Slots
-python main.py 1>&2 2>>error_log &
+cd ~/Halloween_Slots
+python3 main.py 1>&2 2>>error_log &
 
