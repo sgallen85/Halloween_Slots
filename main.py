@@ -22,6 +22,13 @@ os.environ['KIVY_AUDIO'] = 'sdl2'
 # hang indefinitely on the very first image load rather than erroring out.
 os.environ['KIVY_IMAGE'] = 'sdl2'
 
+# SDL2 has its own internal audio driver selection, separate from Kivy's
+# provider system above. On this system it was defaulting to something
+# (almost certainly PulseAudio) that hangs on the very first sound load.
+# Forcing it onto ALSA directly - which we confirmed works via speaker-test -
+# fixes that.
+os.environ['SDL_AUDIODRIVER'] = 'alsa'
+
 from kivy.config import Config
 Config.set('graphics', 'maxfps', '60')
 Config.set('graphics', 'multisamples', '0')  # AA isn't buying you much here and costs fill-rate
@@ -314,49 +321,33 @@ class Slots(Widget):
         self.bar_rects = []
 
     def setup(self, theme):
-        print(">>> TRACE: setup() started", flush=True)
         self.current_theme = theme
         for strip in self.strips:
             del strip
         self.canvas.clear()
         self.start_time = time.time()
         self.strips = []
-        print(">>> TRACE: about to open canvas block", flush=True)
         with self.canvas:
-            print(">>> TRACE: canvas block opened, creating background Rectangle", flush=True)
             bg = Rectangle()
-            print(">>> TRACE: setting bg.source", flush=True)
             bg.source = os.path.join("themes", theme, "images", self.background_file)
-            print(">>> TRACE: bg.source set OK", flush=True)
             bg.pos = (0, 0)
             bg.size = (1920, 1080)
-            print(">>> TRACE: background fully configured", flush=True)
 
             self.bar_rects = []
             if self.background_bars:
-                print(">>> TRACE: creating bar rects", flush=True)
                 Color(*self.BAR_COLOR)
                 for n in range(3):
                     self.bar_rects.append(Rectangle())
                 Color(1, 1, 1, 1)  # reset tint before drawing the reel textures below
-                print(">>> TRACE: bar rects done", flush=True)
 
             for n in range(3):
-                print(">>> TRACE: strip {} - about to call Image()".format(n), flush=True)
                 core_img = Image(os.path.join("themes", theme, "images", "stripbig1.png"))
-                print(">>> TRACE: strip {} - Image() returned, constructing Strip".format(n), flush=True)
                 strip = Strip(core_img, num_symbols=self.num_symbols)
-                print(">>> TRACE: strip {} - Strip() constructed, calling set_uv".format(n), flush=True)
                 strip.set_uv(self, strip.slot_to_uv(0))
-                print(">>> TRACE: strip {} - set_uv done".format(n), flush=True)
                 self.strips.append(strip)
-            print(">>> TRACE: all strips done, creating payline", flush=True)
             Color(1, 0, 0)
             self.payline = Rectangle()
-            print(">>> TRACE: payline done, closing canvas block", flush=True)
-        print(">>> TRACE: canvas block closed successfully", flush=True)
         self.last_time = time.time()
-        print(">>> TRACE: starting sound loading", flush=True)
 
         self.sounds = {}
         # Load any mix of .wav/.ogg/.mp3 - Kivy's SDL2 audio backend plays
@@ -370,9 +361,7 @@ class Slots(Widget):
         for ext in extensions:
             files += glob.glob(os.path.join("themes", theme, 'audio', "*" + ext))
             files += glob.glob(os.path.join("themes", theme, 'audio', "*/*" + ext))
-        print(">>> TRACE: found {} sound files: {}".format(len(files), files), flush=True)
         for fn in files:
-            print(">>> TRACE: loading sound file: {}".format(fn), flush=True)
             path, f = os.path.split(fn)
             f, ext = os.path.splitext(f)
             try:
@@ -380,7 +369,6 @@ class Slots(Widget):
             except Exception as e:
                 logging.warning('could not load sound {}: {}'.format(fn, e))
                 snd = None
-            print(">>> TRACE: finished loading {} (result: {})".format(fn, snd), flush=True)
             if snd is None:
                 logging.warning('sound failed to load (will play silently): {}'.format(fn))
             self.sounds[f] = snd
@@ -608,14 +596,10 @@ class GameScreen(Screen):
     playing = False
 
     def start_game(self, theme):
-        print(">>> TRACE: GameScreen.start_game() called with theme={}".format(theme), flush=True)
         self.slots.setup(theme)
-        print(">>> TRACE: slots.setup() returned", flush=True)
         self.slots.game_screen = self
         self.slots.on_size()
-        print(">>> TRACE: on_size() returned, scheduling clock", flush=True)
         self.timer = Clock.schedule_interval(self.update_timer, 0)
-        print(">>> TRACE: GameScreen.start_game() complete", flush=True)
 
     def on_keyboard_down(self, keyboard, keycode, text, modifiers):
         if keycode[1] == "spacebar":
@@ -735,19 +719,15 @@ class Slot(App):
       os._exit(0)
 
     def on_start(self):
-        print(">>> TRACE: on_start() called", flush=True)
         self.spacing = 0.5 * self.root.width
         self.manager.start_screen.build()
-        print(">>> TRACE: start_screen built", flush=True)
         # if we have config.theme set, let's jump right to that theme
         theme = getattr(config, 'theme', None)
         if not theme:
             logging.warning('no theme set in config.py - staying on the start screen')
         else:
-            print(">>> TRACE: about to call manager.start_game({})".format(theme), flush=True)
             try:
                 self.manager.start_game(theme)
-                print(">>> TRACE: manager.start_game() returned successfully", flush=True)
             except Exception as e:
                 logging.warning('failed to auto-start theme {!r}: {}'.format(theme, e))
 
