@@ -440,7 +440,7 @@ class Slots(Widget):
         # and resumes right where it left off next time it goes idle again -
         # by muting instead of stopping (see _pause_background_music), since
         # Kivy's SDL2 provider get_pos()/seek() are known to always report 0.
-        self.music_enabled = not getattr(config, 'disable_background_music', False)
+        self.music_enabled = getattr(config, 'start_with_music', True)
         self.music_muted = False
         self.idle_music_timeout = getattr(config, 'idle_music_timeout', self.IDLE_MUSIC_TIMEOUT)
         self.music_playlist = []
@@ -455,11 +455,15 @@ class Slots(Widget):
         self.canvas.clear()
         self.start_time = time.time()
         self.strips = []
+
+        self._load_background_cycle(theme)
+        start_bg_path = self._resolve_start_background(theme)
+
         with self.canvas:
-            bg = Rectangle()
-            bg.source = os.path.join("themes", theme, "images", self.background_file)
-            bg.pos = (0, 0)
-            bg.size = (1920, 1080)
+            self.bg_rect = Rectangle()
+            self.bg_rect.source = start_bg_path
+            self.bg_rect.pos = (0, 0)
+            self.bg_rect.size = (1920, 1080)
 
             self.bar_rects = []
             if self.background_bars:
@@ -503,17 +507,72 @@ class Slots(Widget):
 
         self._load_background_music(theme)
 
+    def _load_background_cycle(self, theme):
+        """Finds all images in themes/<theme>/images/background/ for the B
+        key to cycle through."""
+        extensions = ('.png', '.jpg', '.jpeg')
+        files = []
+        for ext in extensions:
+            files += glob.glob(os.path.join("themes", theme, "images", "background", "*" + ext))
+        files.sort()
+        self.bg_cycle_files = files
+
+    def _find_cycle_index(self, path):
+        norm = os.path.normpath(path)
+        for i, f in enumerate(self.bg_cycle_files):
+            if os.path.normpath(f) == norm:
+                return i
+        return -1
+
+    def _resolve_start_background(self, theme):
+        """Figures out the actual starting background path, trying a few
+        places in order, so a config.py that still names an old location
+        (e.g. after moving everything into images/background/) degrades
+        gracefully instead of rendering blank:
+          1. themes/<theme>/images/<background_file>  (the classic location)
+          2. themes/<theme>/images/background/<background_file>  (same
+             filename, but now inside the cycle folder)
+          3. the first image found in images/background/, if any
+        """
+        direct = os.path.join("themes", theme, "images", self.background_file)
+        if os.path.exists(direct):
+            self.bg_cycle_index = self._find_cycle_index(direct)
+            return direct
+
+        in_cycle_folder = os.path.join("themes", theme, "images", "background", self.background_file)
+        if os.path.exists(in_cycle_folder):
+            self.bg_cycle_index = self._find_cycle_index(in_cycle_folder)
+            return in_cycle_folder
+
+        if self.bg_cycle_files:
+            logging.warning(
+                "background_file '{}' not found - using the first image in "
+                "images/background/ instead".format(self.background_file))
+            self.bg_cycle_index = 0
+            return self.bg_cycle_files[0]
+
+        logging.warning(
+            "background_file '{}' not found, and images/background/ has no "
+            "images either - background will likely render blank".format(self.background_file))
+        self.bg_cycle_index = -1
+        return direct
+
+    def cycle_background(self):
+        if not self.bg_cycle_files:
+            return
+        self.bg_cycle_index = (self.bg_cycle_index + 1) % len(self.bg_cycle_files)
+        self.bg_rect.source = self.bg_cycle_files[self.bg_cycle_index]
+
     def _load_background_music(self, theme):
         """Scans themes/<theme>/audio/background/ for music files and builds
-        a shuffled playlist. Playback itself is driven from update() via
-        _update_background_music()."""
+        a shuffled playlist. The playlist is always built regardless of
+        music_enabled, so M can still start it manually even when
+        start_with_music is False in config.py - music_enabled only
+        controls whether it starts on its own after the idle timeout."""
         self.music_playlist = []
         self.music_index = 0
         self.music_sound = None
         self.last_activity_time = time.time()
-
-        if not self.music_enabled:
-            return
 
         extensions = {'.wav', '.ogg', '.mp3'}
         configured_ext = getattr(config, 'audio_extension', None)
@@ -526,12 +585,36 @@ class Slots(Widget):
         self.music_playlist = files
 
     def toggle_music_mute(self):
+        if self.music_sound is None:
+            # Nothing loaded yet - most likely start_with_music is False in
+            # config.py, or the idle timeout just hasn't fired yet. Either
+            # way, start a fresh track now rather than muting nothing.
+            self.start_music_now()
+            return
         self.music_muted = not self.music_muted
         # If music is currently audible (idle, not already spin-muted),
         # apply the change immediately rather than waiting for the next
         # idle/spin transition.
-        if self.music_sound is not None and self.state == 'idle':
+        if self.state == 'idle':
             self.music_sound.volume = 0 if self.music_muted else 1
+
+    def start_music_now(self):
+        if not self.music_playlist:
+            return
+        self.music_enabled = True
+        self.music_muted = False
+        self._start_music_track()
+        self.last_activity_time = time.time()
+
+    def skip_music_track(self):
+        if not self.music_playlist:
+            return
+        if self.music_sound is not None:
+            self.music_sound.stop()
+        self._advance_music_track()
+
+    def _music_should_be_silent(self):
+        return self.music_muted or self.state != 'idle'
 
     def _pause_background_music(self):
         # Mute rather than stop: Kivy's SDL2 provider doesn't reliably
@@ -552,7 +635,7 @@ class Slots(Widget):
             self._advance_music_track()
             return
         self.music_sound = snd
-        snd.volume = 0 if self.music_muted else 1
+        snd.volume = 0 if self._music_should_be_silent() else 1
         snd.play()
 
     def _advance_music_track(self):
@@ -560,7 +643,7 @@ class Slots(Widget):
         self._start_music_track()
 
     def _update_background_music(self):
-        if not self.music_playlist or self.state != 'idle':
+        if not self.music_enabled or not self.music_playlist or self.state != 'idle':
             return
         if time.time() - self.last_activity_time < self.idle_music_timeout:
             return
@@ -845,6 +928,10 @@ class GameScreen(Screen):
             self.manager.current = "Start Screen"
         if keycode[1] == "m":
             self.slots.toggle_music_mute()
+        if keycode[1] == "s":
+            self.slots.skip_music_track()
+        if keycode[1] == "b":
+            self.slots.cycle_background()
 
     def update_timer(self, i=None, val=None):
         if self.manager.hardwareButton.checkButton():

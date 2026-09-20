@@ -27,4 +27,4 @@ win_odds = {
 
 idle_music_timeout = 20.0
 
-#disable_background_music = True
+start_with_music = False 
