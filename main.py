@@ -434,6 +434,9 @@ class Slots(Widget):
         self.background_bars = getattr(config, 'background_bars',
                                         self.background_file != self.BACKGROUND_FILE)
         self.bar_rects = []
+        self.bg_gif_textures = []
+        self.bg_gif_index = 0
+        self.bg_anim_event = None
 
         # Idle background music - starts after IDLE_MUSIC_TIMEOUT seconds of
         # no spins, pauses (and remembers position) the moment a spin starts,
@@ -477,7 +480,7 @@ class Slots(Widget):
                 strip = Strip(core_img, num_symbols=self.num_symbols)
                 strip.set_uv(self, strip.slot_to_uv(0))
                 self.strips.append(strip)
-            Color(1, 0, 0)
+            Color(*TIER_STYLE['jackpot']['color'])
             self.payline = Rectangle()
         self.last_time = time.time()
 
@@ -669,8 +672,8 @@ class Slots(Widget):
                 bar = self.bar_rects[n]
                 bar.pos = (strip.pos[0] - self.BAR_PAD, 0)
                 bar.size = (sw + self.BAR_PAD * 2, self.size[1])
-        self.payline.pos = (50, self.size[1]/2)
-        self.payline.size = (self.size[0]-100, 10)
+        self.payline.pos = (0, self.size[1]/2)
+        self.payline.size = (self.size[0], 7.5)
 
     def start_spin(self):
         if self.state == 'idle':
