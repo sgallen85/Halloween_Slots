@@ -1,4 +1,5 @@
 from kivy.app import App
+from kivy.uix.widget import Widget
 from kivy.core.audio import SoundLoader
 from kivy.clock import Clock
 
@@ -6,13 +7,14 @@ from kivy.clock import Clock
 class SeekTest(App):
     def build(self):
         self.snd = SoundLoader.load('test_track.ogg')
-        if self.snd is None:
-            print(">>> FAILED to load test_track.ogg")
-            return None
-        print(">>> Loaded OK, length: {} sec".format(self.snd.length))
-        self.snd.play()
-        Clock.schedule_once(self.check_pos, 3)
-        return None
+        if self.snd is None or self.snd.length <= 0:
+            print(">>> FAILED to load test_track.ogg (snd={}, length={})".format(
+                self.snd, getattr(self.snd, 'length', None)))
+        else:
+            print(">>> Loaded OK, length: {} sec".format(self.snd.length))
+            self.snd.play()
+            Clock.schedule_once(self.check_pos, 3)
+        return Widget()  # must return a real widget or Kivy exits immediately
 
     def check_pos(self, dt):
         pos = self.snd.get_pos()

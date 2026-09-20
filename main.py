@@ -23,11 +23,13 @@ os.environ['KIVY_AUDIO'] = 'sdl2'
 os.environ['KIVY_IMAGE'] = 'sdl2'
 
 # SDL2 has its own internal audio driver selection, separate from Kivy's
-# provider system above. On this system it was defaulting to something
-# (almost certainly PulseAudio) that hangs on the very first sound load.
-# Forcing it onto ALSA directly - which we confirmed works via speaker-test -
-# fixes that.
-os.environ['SDL_AUDIODRIVER'] = 'alsa'
+# provider system above. On the Pi it was defaulting to something (almost
+# certainly PulseAudio) that hangs on the very first sound load. Forcing it
+# onto ALSA directly - which we confirmed works via speaker-test - fixes
+# that. This only applies on Linux (the Pi) - ALSA doesn't exist on macOS,
+# and forcing it there would silently kill audio entirely during Mac testing.
+if sys.platform.startswith('linux'):
+    os.environ['SDL_AUDIODRIVER'] = 'alsa'
 
 from kivy.config import Config
 Config.set('graphics', 'maxfps', '60')
@@ -435,13 +437,15 @@ class Slots(Widget):
 
         # Idle background music - starts after IDLE_MUSIC_TIMEOUT seconds of
         # no spins, pauses (and remembers position) the moment a spin starts,
-        # and resumes from that exact position next time it goes idle again.
+        # and resumes right where it left off next time it goes idle again -
+        # by muting instead of stopping (see _pause_background_music), since
+        # Kivy's SDL2 provider get_pos()/seek() are known to always report 0.
+        self.music_enabled = not getattr(config, 'disable_background_music', False)
+        self.music_muted = False
         self.idle_music_timeout = getattr(config, 'idle_music_timeout', self.IDLE_MUSIC_TIMEOUT)
         self.music_playlist = []
         self.music_index = 0
         self.music_sound = None
-        self.music_paused = False
-        self.music_paused_pos = 0.0
         self.last_activity_time = time.time()
 
     def setup(self, theme):
@@ -503,6 +507,14 @@ class Slots(Widget):
         """Scans themes/<theme>/audio/background/ for music files and builds
         a shuffled playlist. Playback itself is driven from update() via
         _update_background_music()."""
+        self.music_playlist = []
+        self.music_index = 0
+        self.music_sound = None
+        self.last_activity_time = time.time()
+
+        if not self.music_enabled:
+            return
+
         extensions = {'.wav', '.ogg', '.mp3'}
         configured_ext = getattr(config, 'audio_extension', None)
         if configured_ext:
@@ -512,20 +524,23 @@ class Slots(Widget):
             files += glob.glob(os.path.join("themes", theme, 'audio', 'background', "*" + ext))
         random.shuffle(files)
         self.music_playlist = files
-        self.music_index = 0
-        self.music_sound = None
-        self.music_paused = False
-        self.music_paused_pos = 0.0
-        self.last_activity_time = time.time()
+
+    def toggle_music_mute(self):
+        self.music_muted = not self.music_muted
+        # If music is currently audible (idle, not already spin-muted),
+        # apply the change immediately rather than waiting for the next
+        # idle/spin transition.
+        if self.music_sound is not None and self.state == 'idle':
+            self.music_sound.volume = 0 if self.music_muted else 1
 
     def _pause_background_music(self):
+        # Mute rather than stop: Kivy's SDL2 provider doesn't reliably
+        # support seek()/get_pos() (confirmed - get_pos() always reports 0
+        # on this setup), so instead of stopping and trying to seek back,
+        # the track just keeps playing silently underneath a spin and picks
+        # up exactly where a listener would expect once unmuted.
         if self.music_sound is not None and self.music_sound.state == 'play':
-            try:
-                self.music_paused_pos = self.music_sound.get_pos()
-            except Exception:
-                self.music_paused_pos = 0.0
-            self.music_sound.stop()
-            self.music_paused = True
+            self.music_sound.volume = 0
 
     def _start_music_track(self):
         if not self.music_playlist:
@@ -537,21 +552,10 @@ class Slots(Widget):
             self._advance_music_track()
             return
         self.music_sound = snd
-        self.music_paused = False
+        snd.volume = 0 if self.music_muted else 1
         snd.play()
-
-    def _resume_music_track(self):
-        snd = self.music_sound
-        snd.play()
-        if self.music_paused_pos > 0:
-            try:
-                snd.seek(self.music_paused_pos)
-            except Exception:
-                pass  # not every format/provider supports seek - it'll just restart that track instead
-        self.music_paused = False
 
     def _advance_music_track(self):
-        self.music_paused_pos = 0.0
         self.music_index = (self.music_index + 1) % len(self.music_playlist)
         self._start_music_track()
 
@@ -562,8 +566,9 @@ class Slots(Widget):
             return
         if self.music_sound is None:
             self._start_music_track()
-        elif self.music_paused:
-            self._resume_music_track()
+        elif self.music_sound.volume == 0:
+            if not self.music_muted:
+                self.music_sound.volume = 1  # was muted during a spin - it never stopped, just unmute it
         elif self.music_sound.state != 'play':
             self._advance_music_track()  # previous track finished naturally
 
@@ -838,6 +843,8 @@ class GameScreen(Screen):
             self.slots.start_spin()
         if keycode[1] == "q":
             self.manager.current = "Start Screen"
+        if keycode[1] == "m":
+            self.slots.toggle_music_mute()
 
     def update_timer(self, i=None, val=None):
         if self.manager.hardwareButton.checkButton():
