@@ -157,6 +157,7 @@ Builder.load_string('''
 
 # should this be global?
 coinDispense = Hardware.coinDispense()
+ledStrip = Hardware.ledStrip()
 
 # Human-readable names for each strip slot, in the same order as
 # stripbig1.png (top to bottom). Used only for the CSV game log. If you add
@@ -438,6 +439,15 @@ class Slots(Widget):
         self.bg_gif_index = 0
         self.bg_anim_event = None
 
+        # LED strip: a steady warm-orange ambient glow most of the time,
+        # flashing to the matching tier color (reusing TIER_STYLE's own
+        # colors, so the LEDs and the on-screen banner always agree) for a
+        # few seconds on any win. Override the idle color with
+        # `led_idle_color = (r, g, b)` (0-255 each) in config.py.
+        self._led_flash_event = None
+        self._led_flash_state = None
+        self.led_idle_color = getattr(config, 'led_idle_color', (40, 15, 0))
+
         # Idle background music - starts after IDLE_MUSIC_TIMEOUT seconds of
         # no spins, pauses (and remembers position) the moment a spin starts,
         # and resumes right where it left off next time it goes idle again -
@@ -509,6 +519,36 @@ class Slots(Widget):
             self.sounds[f] = snd
 
         self._load_background_music(theme)
+        self._led_set_idle()
+
+    def _led_to_rgb255(self, float_color):
+        """Converts one of TIER_STYLE's 0-1 float colors (Kivy's format) to
+        the 0-255 integers the LED strip wants."""
+        return tuple(int(max(0, min(1, c)) * 255) for c in float_color[:3])
+
+    def _led_set_idle(self):
+        if self._led_flash_event:
+            return  # a flash is mid-sequence - it'll restore idle itself when done
+        ledStrip.set_all(*self.led_idle_color)
+
+    def _led_flash(self, rgb, cycles=4, interval=0.15):
+        if self._led_flash_event:
+            self._led_flash_event.cancel()
+        self._led_flash_state = {'count': 0, 'total': cycles * 2, 'rgb': rgb}
+        self._led_flash_event = Clock.schedule_interval(self._led_flash_tick, interval)
+
+    def _led_flash_tick(self, dt):
+        st = self._led_flash_state
+        if st['count'] >= st['total']:
+            self._led_flash_event.cancel()
+            self._led_flash_event = None
+            self._led_set_idle()
+            return
+        if st['count'] % 2 == 0:
+            ledStrip.set_all(*st['rgb'])
+        else:
+            ledStrip.off()
+        st['count'] += 1
 
     def _load_background_cycle(self, theme):
         """Finds all images in themes/<theme>/images/background/ for the B
@@ -881,11 +921,17 @@ class Slots(Widget):
 
             self.show_win(match_type, payout, pumpkin_count)
             if match_type == 'jackpot':
+                self._led_flash(self._led_to_rgb255(TIER_STYLE['jackpot']['color']), cycles=8, interval=0.1)
                 self.start_jackpot_celebration()
             elif match_type == '3 of a kind':
+                self._led_flash(self._led_to_rgb255(TIER_STYLE['3 of a kind']['color']), cycles=5, interval=0.12)
                 counts = Counter(self.landed)
                 matched_symbol = max(counts, key=counts.get)
                 self.start_triple_celebration(matched_symbol)
+            elif match_type == 'double':
+                self._led_flash(self._led_to_rgb255(TIER_STYLE['double']['color']), cycles=3, interval=0.15)
+            elif pumpkin_count >= 1:
+                self._led_flash(self._led_to_rgb255(PUMPKIN_BONUS_COLOR), cycles=3, interval=0.15)
             coinDispense.dispenseCoin(payout)
             self.state = 'idle'
 
