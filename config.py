@@ -50,6 +50,7 @@ led_runner_background_level = 0.3       # 1.0 = full-brightness background, lowe
 
 #configure music lights (idle lights follow the background music)
 #Run make_light_maps.py after adding new songs to audio/background/.
-led_music_lights = True                  # False = always use the pulse/runner loop
-led_music_offset = 0.0                   # seconds; raise if lights run early, lower if late
+led_music_lights = True                  # False = start with the pulse/runner loop (L key toggles)
+led_music_offset = 0.0                   # seconds; raise if lights run early, lower if late ([ / ] keys adjust live)
+led_music_beats_per_color = 16           # beats before the color changes
 #led_music_colors = [(255, 50, 0), (0, 200, 15), (140, 0, 255)]   # beat colors: orange, green, purple

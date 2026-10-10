@@ -107,6 +107,7 @@ Builder.load_string('''
     win_icon_left: _win_icon_left
     win_icon_right: _win_icon_right
     win_celebration: _win_celebration
+    status_label: _status_label
     name: "Game Screen"
     FloatLayout:
         Slots:
@@ -151,6 +152,23 @@ Builder.load_string('''
                 pos_hint: {'center_x': .85, 'center_y': .5}
         JackpotCelebration:
             id: _win_celebration
+        Label:
+            id: _status_label
+            text: ""
+            font_size: '36sp'
+            bold: True
+            color: 1, 1, 1, 1
+            opacity: 0
+            size_hint: (None, None)
+            size: self.texture_size
+            padding: (20, 10)
+            pos_hint: {'x': .01, 'top': .99}
+            canvas.before:
+                Color:
+                    rgba: 0, 0, 0, 0.6
+                Rectangle:
+                    pos: self.pos
+                    size: self.size
 ''')
 
 # 
@@ -521,16 +539,20 @@ class Slots(Widget):
         # strip follows that track's light map (built ahead of time by
         # make_light_maps.py) instead of the pulse/runner loop. Optional in
         # config.py:
-        #   led_music_lights - False to always use the normal idle loop
-        #   led_music_colors - colors the beats step through
+        #   led_music_lights - False to start with the normal idle loop
+        #                      (the L key toggles this while running)
+        #   led_music_colors - colors the lights step through
+        #   led_music_beats_per_color - beats before moving to the next color
         #   led_music_offset - seconds to shift the lights vs the music;
         #                      positive = lights later, negative = earlier
+        #                      ([ and ] keys adjust this while running)
         self.led_music_lights = getattr(config, 'led_music_lights', True)
         self.led_music_colors = getattr(config, 'led_music_colors', [
             (255, 50, 0),    # orange
             (0, 200, 15),    # green
             (140, 0, 255),   # purple
         ])
+        self.led_music_beats_per_color = getattr(config, 'led_music_beats_per_color', 16)
         self.led_music_offset = getattr(config, 'led_music_offset', 0.0)
         self._music_started_at = 0.0
         self._music_map = None        # light map for the current track, or None
@@ -620,7 +642,7 @@ class Slots(Widget):
 
     def _music_lights_active(self):
         snd = self.music_sound
-        return (self._music_map is not None and snd is not None
+        return (self.led_music_lights and self._music_map is not None and snd is not None
                 and snd.state == 'play' and snd.volume > 0 and self.state == 'idle')
 
     def _led_idle_tick(self, dt):
@@ -678,15 +700,14 @@ class Slots(Widget):
             ledStrip.set_all(*rgb)
 
     def _led_music_frame(self):
-        """One frame of the music lights:
-          - a bar grows out from the middle of the strip with the bass
-          - every beat flashes the whole strip and steps to the next color,
-            harder on strong beats, fading out quickly after
+        """One frame of the music lights. The whole strip is one color that
+        changes only every `led_music_beats_per_color` beats. Each beat
+        flashes it bright (harder on strong beats), then it eases back down
+        to a glow that rises and falls with the bass.
         """
         light_map = self._music_map
-        n = self.led_count
         colors = self.led_music_colors
-        if n <= 0 or not colors:
+        if not colors:
             return
         t = time.time() - self._music_started_at - self.led_music_offset
         energy = light_map['energy']
@@ -697,25 +718,25 @@ class Slots(Widget):
         k = bisect.bisect_right(light_map['beat_times'], t) - 1
         if k >= 0:
             beat_time, strength = light_map['beats'][k]
-            flash = (0.35 + 0.65 * strength / 100.0) * math.exp(-(t - beat_time) / 0.15)
-            color = colors[k % len(colors)]
+            flash = (0.45 + 0.55 * strength / 100.0) * math.exp(-(t - beat_time) / 0.22)
+            color = colors[(k // max(1, self.led_music_beats_per_color)) % len(colors)]
         else:
             flash = 0.0
             color = colors[0]
 
-        # Bass bar: lit from the middle out to `half` LEDs each way, with a
-        # soft edge; the rest of the strip glows faintly
-        center = (n - 1) / 2.0
-        half = e * n / 2.0
-        bar_level = 0.25 + 0.75 * e
-        r0, g0, b0 = color
-        pixels = []
-        for i in range(n):
-            edge = half - abs(i - center)          # > 0 inside the bar
-            inside = max(0.0, min(1.0, edge / 3.0 + 0.5))
-            level = max(0.04 + (bar_level - 0.04) * inside, flash)
-            pixels.append((int(r0 * level), int(g0 * level), int(b0 * level)))
-        ledStrip.set_pixels(pixels)
+        glow = 0.08 + 0.32 * e
+        level = max(glow, flash)
+        ledStrip.set_all(int(color[0] * level), int(color[1] * level), int(color[2] * level))
+
+    def toggle_music_lights(self):
+        """L key: switch between music lights and the normal idle loop."""
+        self.led_music_lights = not self.led_music_lights
+        return self.led_music_lights
+
+    def nudge_music_offset(self, seconds):
+        """[ and ] keys: shift the music lights earlier/later."""
+        self.led_music_offset = round(max(-1.0, min(1.0, self.led_music_offset + seconds)), 3)
+        return self.led_music_offset
 
     def _led_runner_frame(self, u, background=(0, 0, 0)):
         """Draws the runner at progress `u` (0-1) through its trip: down the
@@ -989,8 +1010,6 @@ class Slots(Widget):
     def _load_light_map(self, track_path):
         """Loads `<track>.lights.json` from make_light_maps.py, or returns
         None if there isn't one (those tracks just use the idle loop)."""
-        if not self.led_music_lights:
-            return None
         path = os.path.splitext(track_path)[0] + '.lights.json'
         if not os.path.exists(path):
             logging.info('no light map for {} - run make_light_maps.py'.format(track_path))
@@ -1324,6 +1343,21 @@ class GameScreen(Screen):
             self.slots.skip_music_track()
         if keycode[1] == "b":
             self.slots.cycle_background()
+        if keycode[1] == "l":
+            on = self.slots.toggle_music_lights()
+            self.show_status("Music lights: {}".format("ON" if on else "OFF"))
+        if text in ('[', ']'):
+            offset = self.slots.nudge_music_offset(-0.02 if text == '[' else 0.02)
+            self.show_status("Light timing: {:+.2f}s".format(offset))
+
+    def show_status(self, message):
+        """Shows a short message in the top-left corner for a few seconds."""
+        label = self.status_label
+        Animation.cancel_all(label)
+        label.text = message
+        label.opacity = 1
+        (Animation(duration=2.5) + Animation(opacity=0, duration=0.5)).start(label)
+        logging.info(message)
 
     def update_timer(self, i=None, val=None):
         if self.manager.hardwareButton.checkButton():
