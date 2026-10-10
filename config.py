@@ -6,7 +6,7 @@ window_size=True
 servo_min = 370
 servo_max = 575
 
-gpio_button = 18
+gpio_button = 17
 
 num_servos = 0
 
