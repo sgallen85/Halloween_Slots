@@ -465,7 +465,7 @@ class Slots(Widget):
         self.led_idle_colors = getattr(config, 'led_idle_colors',
                                        [(255, 50, 0), (0, 200, 15)])
         self.led_pulse_seconds = getattr(config, 'led_pulse_seconds', 4.0)
-        self.led_pulse_gap = getattr(config, 'led_pulse_gap', 0.5)
+        self.led_pulse_gap = getattr(config, 'led_pulse_gap', 0.1)
         self._led_idle_event = None
         self._led_idle_phase_start = 0.0
         self._led_last_rgb = None
@@ -477,8 +477,11 @@ class Slots(Widget):
         self.led_spin_interval = getattr(config, 'led_spin_interval', 0.2)
         self._led_spin_event = None
         self._led_spin_offset = 0
-        # How long the strip flashes after a jackpot.
-        self.led_jackpot_flash_seconds = getattr(config, 'led_jackpot_flash_seconds', 5.0)
+        # Seconds the strip flashes after each kind of win. Override any
+        # of them with `led_flash_seconds = {...}` in config.py.
+        self.led_flash_seconds = {'jackpot': 10.0, '3 of a kind': 4.0,
+                                  'double': 3.0, 'pumpkin': 3.0}
+        self.led_flash_seconds.update(getattr(config, 'led_flash_seconds', {}))
 
         # Idle background music - starts after IDLE_MUSIC_TIMEOUT seconds of
         # no spins, pauses (and remembers position) the moment a spin starts,
@@ -588,11 +591,11 @@ class Slots(Widget):
             level = 0.0   # dark pause before the next color
         else:
             # Smooth 0 -> 1 -> 0 that starts and ends fully dark, so the color
-            # change always happens while the strip is off. Squared because
-            # LED brightness looks non-linear - without it the pulse seems to
-            # hang near the top.
+            # change always happens while the strip is off. The 1.5 power
+            # suits how LED brightness looks to the eye without leaving the
+            # strip near-black for long at either end.
             wave = 0.5 - 0.5 * math.cos(2 * math.pi * (pos / pulse))
-            level = wave * wave
+            level = wave ** 1.5
         rgb = (int(round(base[0] * level)), int(round(base[1] * level)),
                int(round(base[2] * level)))
         if rgb != self._led_last_rgb:   # skip redundant strip refreshes
@@ -637,25 +640,33 @@ class Slots(Widget):
         ledStrip.set_pattern(self.led_spin_colors, self._led_spin_offset)
         self._led_spin_offset = (self._led_spin_offset + 1) % len(self.led_spin_colors)
 
-    def _led_flash(self, rgb, cycles=4, interval=0.15):
+    def _led_flash(self, rgb, seconds, interval=0.15):
+        """Flashes `rgb` on/off every `interval` seconds for `seconds`.
+        Timed by the clock rather than by counting ticks, so a busy frame
+        (Kivy can run ticks late) can't cut the flash short."""
         self._led_idle_stop()   # the pulse and the flash would fight over the strip
         self._led_spin_stop()
         self._led_flash_stop()
-        self._led_flash_state = {'count': 0, 'total': cycles * 2, 'rgb': rgb}
-        self._led_flash_event = Clock.schedule_interval(self._led_flash_tick, interval)
+        self._led_flash_state = {'start': time.time(), 'seconds': seconds,
+                                 'interval': interval, 'rgb': rgb, 'on': None}
+        self._led_flash_tick(0)   # light up immediately
+        # Check often so each on/off switch lands close to on time.
+        self._led_flash_event = Clock.schedule_interval(self._led_flash_tick, 1 / 30.)
 
     def _led_flash_tick(self, dt):
         st = self._led_flash_state
-        if st['count'] >= st['total']:
-            self._led_flash_event.cancel()
-            self._led_flash_event = None
+        elapsed = time.time() - st['start']
+        if elapsed >= st['seconds']:
+            self._led_flash_stop()
             self._led_set_idle()
             return
-        if st['count'] % 2 == 0:
-            ledStrip.set_all(*st['rgb'])
-        else:
-            ledStrip.off()
-        st['count'] += 1
+        on = int(elapsed / st['interval']) % 2 == 0
+        if on != st['on']:   # only touch the strip when it actually changes
+            st['on'] = on
+            if on:
+                ledStrip.set_all(*st['rgb'])
+            else:
+                ledStrip.off()
 
     def _load_background_cycle(self, theme):
         """Finds all images in themes/<theme>/images/background/ for the B
@@ -1031,22 +1042,23 @@ class Slots(Widget):
             # Reels have stopped - end the spin lights. A win flash below
             # takes over the strip; with no win, go straight back to idle.
             self._led_spin_stop()
+            flash_secs = self.led_flash_seconds
             if match_type == 'jackpot':
-                # One cycle = on + off, so cycles = seconds / (2 * interval)
-                jackpot_interval = 0.1
-                jackpot_cycles = max(1, int(round(self.led_jackpot_flash_seconds / (2 * jackpot_interval))))
                 self._led_flash(self._led_to_rgb255(TIER_STYLE['jackpot']['color']),
-                                cycles=jackpot_cycles, interval=jackpot_interval)
+                                flash_secs['jackpot'], interval=0.1)
                 self.start_jackpot_celebration()
             elif match_type == '3 of a kind':
-                self._led_flash(self._led_to_rgb255(TIER_STYLE['3 of a kind']['color']), cycles=5, interval=0.12)
+                self._led_flash(self._led_to_rgb255(TIER_STYLE['3 of a kind']['color']),
+                                flash_secs['3 of a kind'], interval=0.12)
                 counts = Counter(self.landed)
                 matched_symbol = max(counts, key=counts.get)
                 self.start_triple_celebration(matched_symbol)
             elif match_type == 'double':
-                self._led_flash(self._led_to_rgb255(TIER_STYLE['double']['color']), cycles=3, interval=0.15)
+                self._led_flash(self._led_to_rgb255(TIER_STYLE['double']['color']),
+                                flash_secs['double'], interval=0.15)
             elif pumpkin_count >= 1:
-                self._led_flash(self._led_to_rgb255(PUMPKIN_BONUS_COLOR), cycles=3, interval=0.15)
+                self._led_flash(self._led_to_rgb255(PUMPKIN_BONUS_COLOR),
+                                flash_secs['pumpkin'], interval=0.15)
             else:
                 self._led_set_idle()
             coinDispense.dispenseCoin(payout)
