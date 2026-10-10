@@ -83,6 +83,18 @@ class ledStrip:
             self.strip.setPixelColor(i, color)
         self.strip.show()
 
+    def set_pattern(self, colors, offset=0):
+        """Repeats `colors` (list of (r, g, b)) along the strip - e.g. two
+        colors gives every-other-LED. `offset` shifts the pattern by that
+        many LEDs, so stepping it makes the colors trade places."""
+        if self.strip is None or not colors:
+            return
+        wc = [WSColor(*c) for c in colors]
+        n = len(wc)
+        for i in range(self.strip.numPixels()):
+            self.strip.setPixelColor(i, wc[(i + offset) % n])
+        self.strip.show()
+
     def set_pixel(self, i, r, g, b):
         if self.strip is None:
             return
