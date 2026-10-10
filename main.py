@@ -538,6 +538,9 @@ class Slots(Widget):
         #                      (the L key toggles this while running)
         #   led_music_colors - colors the lights step through
         #   led_music_beats_per_color - beats before moving to the next color
+        #   led_music_ripples - False for whole-strip pulses only (no ripples)
+        #   led_music_accent_threshold - how hard a beat must hit (0-100) to
+        #                      ripple in the accent color; higher = rarer
         #   led_music_offset - seconds to shift the lights vs the music;
         #                      positive = lights later, negative = earlier
         #                      ([ and ] keys adjust this while running)
@@ -548,6 +551,8 @@ class Slots(Widget):
             (140, 0, 255),   # purple
         ])
         self.led_music_beats_per_color = getattr(config, 'led_music_beats_per_color', 16)
+        self.led_music_ripples = getattr(config, 'led_music_ripples', True)
+        self.led_music_accent_threshold = getattr(config, 'led_music_accent_threshold', 95)
         self.led_music_offset = getattr(config, 'led_music_offset', 0.04)
         self._music_started_at = 0.0
         self._music_map = None        # light map for the current track, or None
@@ -690,34 +695,85 @@ class Slots(Widget):
             self._led_last_rgb = rgb
             ledStrip.set_all(*rgb)
 
+    # Music light timing
+    LED_MUSIC_FADE_SECONDS = 1.5     # crossfade between base colors
+    LED_RIPPLE_SECONDS = 0.9         # how long a beat's ripple lives
+    LED_RIPPLE_REACH_SECONDS = 0.55  # time for a ripple to reach the strip ends
+    LED_RIPPLE_WIDTH = 4.0           # LEDs either side of a ripple's crest
+
     def _led_music_frame(self):
-        """One frame of the music lights. The whole strip is one color that
-        changes only every `led_music_beats_per_color` beats. Each beat
-        flashes it bright (harder on strong beats), then it eases back down
-        to a glow that rises and falls with the bass.
+        """One frame of the music lights, built in layers:
+          - base color: changes every `led_music_beats_per_color` beats,
+            crossfading over a second or so instead of switching
+          - glow: the base color, rising and falling with the bass
+          - beat flash: a quick whole-strip flash on every beat
+          - ripples: each beat sends a ring of light from the middle out to
+            both ends; strong beats ripple in the next color (the accent)
         """
         light_map = self._music_map
         colors = self.led_music_colors
-        if not colors:
+        n = self.led_count
+        if not colors or n <= 0:
             return
         t = time.time() - self._music_started_at - self.led_music_offset
         energy = light_map['energy']
         idx = int(t * light_map['fps'])
         e = energy[idx] / 100.0 if 0 <= idx < len(energy) else 0.0
+        beats = light_map['beats']
+        beat_times = light_map['beat_times']
+        k = bisect.bisect_right(beat_times, t) - 1   # most recent beat
 
-        # Most recent beat at or before t
-        k = bisect.bisect_right(light_map['beat_times'], t) - 1
+        # Base color, crossfading from the previous phrase's color
+        per = max(1, self.led_music_beats_per_color)
+        phrase = k // per if k >= 0 else 0
+        base = colors[phrase % len(colors)]
+        if phrase > 0:
+            since = t - beat_times[phrase * per]
+            mix = min(1.0, since / self.LED_MUSIC_FADE_SECONDS)
+            prev = colors[(phrase - 1) % len(colors)]
+            base = tuple(p + (c - p) * mix for p, c in zip(prev, base))
+        accent = colors[(phrase + 1) % len(colors)]
+
+        # Whole-strip level: bass glow, plus a quick flash on each beat
+        level = 0.08 + 0.32 * e
         if k >= 0:
-            beat_time, strength = light_map['beats'][k]
-            flash = (0.45 + 0.55 * strength / 100.0) * math.exp(-(t - beat_time) / 0.22)
-            color = colors[(k // max(1, self.led_music_beats_per_color)) % len(colors)]
-        else:
-            flash = 0.0
-            color = colors[0]
+            beat_time, strength = beats[k]
+            flash_size = 0.35 if self.led_music_ripples else 1.0
+            flash = flash_size * (0.45 + 0.55 * strength / 100.0) * math.exp(-(t - beat_time) / 0.22)
+            level = max(level, flash)
+        r0, g0, b0 = base[0] * level, base[1] * level, base[2] * level
 
-        glow = 0.08 + 0.32 * e
-        level = max(glow, flash)
-        ledStrip.set_all(int(color[0] * level), int(color[1] * level), int(color[2] * level))
+        if not self.led_music_ripples:
+            ledStrip.set_all(int(r0), int(g0), int(b0))
+            return
+
+        # Ripples from the last few beats still in flight
+        ripples = []
+        for j in range(max(0, k - 3), k + 1):
+            beat_time, strength = beats[j]
+            age = t - beat_time
+            if age < 0 or age > self.LED_RIPPLE_SECONDS:
+                continue
+            amp = (0.4 + 0.6 * strength / 100.0) * (1 - age / self.LED_RIPPLE_SECONDS) ** 1.5
+            color = accent if strength >= self.led_music_accent_threshold else base
+            radius = (age / self.LED_RIPPLE_REACH_SECONDS) * (n / 2.0)
+            ripples.append((radius, amp, color))
+
+        center = (n - 1) / 2.0
+        width = self.LED_RIPPLE_WIDTH
+        pixels = []
+        for i in range(n):
+            r, g, b = r0, g0, b0
+            d = abs(i - center)
+            for radius, amp, color in ripples:
+                near = 1.0 - abs(d - radius) / width
+                if near > 0:
+                    a = amp * near
+                    r += color[0] * a
+                    g += color[1] * a
+                    b += color[2] * a
+            pixels.append((min(255, int(r)), min(255, int(g)), min(255, int(b))))
+        ledStrip.set_pixels(pixels)
 
     def toggle_music_lights(self):
         """L key: switch between music lights and the normal idle loop."""

@@ -61,5 +61,7 @@ led_spin_interval = 0.2
 # Run tools/make_light_maps.py after adding songs to assets/audio/background/.
 led_music_lights = True         # False = start with the normal idle loop (L key toggles)
 led_music_offset = 0.04         # seconds; raise if lights run early, lower if late ([ and ] adjust live)
-led_music_beats_per_color = 16  # beats before the color changes
+led_music_beats_per_color = 16  # beats before the base color fades to the next one
+led_music_ripples = True        # beats ripple out from the middle (False = whole-strip pulses only)
+led_music_accent_threshold = 95 # strong beats (0-100) ripple in the next color; higher = rarer
 #led_music_colors = [(255, 50, 0), (0, 200, 15), (140, 0, 255)]
