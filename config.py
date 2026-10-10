@@ -28,3 +28,9 @@ win_odds = {
 idle_music_timeout = 20.0
 
 start_with_music = False 
+
+
+#configure LED 
+led_pin = 21
+led_channel = 0
+led_count = 200
