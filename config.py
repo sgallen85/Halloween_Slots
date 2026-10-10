@@ -47,3 +47,9 @@ led_spin_interval = 0.2                          # seconds between spin colors s
 led_brightness = 100                          # overall strip brightness 0-255
 led_runner_seconds = 8.0                  # runner speed (round trip)
 led_runner_background_level = 0.3       # 1.0 = full-brightness background, lower = more contrast
+
+#configure music lights (idle lights follow the background music)
+#Run make_light_maps.py after adding new songs to audio/background/.
+led_music_lights = True                  # False = always use the pulse/runner loop
+led_music_offset = 0.0                   # seconds; raise if lights run early, lower if late
+#led_music_colors = [(255, 50, 0), (0, 200, 15), (140, 0, 255)]   # beat colors: orange, green, purple

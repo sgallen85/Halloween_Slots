@@ -2,7 +2,7 @@
 from __future__ import division
 
 import random
-import os, sys, time, math, logging, argparse, glob, subprocess, csv, atexit
+import os, sys, time, math, logging, argparse, glob, subprocess, csv, atexit, json, bisect
 
 import string
 
@@ -517,6 +517,25 @@ class Slots(Widget):
         self.music_sound = None
         self.last_activity_time = time.time()
 
+        # Music lights: while background music is audible and idle, the
+        # strip follows that track's light map (built ahead of time by
+        # make_light_maps.py) instead of the pulse/runner loop. Optional in
+        # config.py:
+        #   led_music_lights - False to always use the normal idle loop
+        #   led_music_colors - colors the beats step through
+        #   led_music_offset - seconds to shift the lights vs the music;
+        #                      positive = lights later, negative = earlier
+        self.led_music_lights = getattr(config, 'led_music_lights', True)
+        self.led_music_colors = getattr(config, 'led_music_colors', [
+            (255, 50, 0),    # orange
+            (0, 200, 15),    # green
+            (140, 0, 255),   # purple
+        ])
+        self.led_music_offset = getattr(config, 'led_music_offset', 0.0)
+        self._music_started_at = 0.0
+        self._music_map = None        # light map for the current track, or None
+        self._led_music_mode = False  # whether the idle tick is following music
+
     def setup(self, theme):
         self.current_theme = theme
         for strip in self.strips:
@@ -599,7 +618,22 @@ class Slots(Widget):
             self._led_idle_event.cancel()
             self._led_idle_event = None
 
+    def _music_lights_active(self):
+        snd = self.music_sound
+        return (self._music_map is not None and snd is not None
+                and snd.state == 'play' and snd.volume > 0 and self.state == 'idle')
+
     def _led_idle_tick(self, dt):
+        if self._music_lights_active():
+            self._led_music_mode = True
+            self._led_music_frame()
+            return
+        if self._led_music_mode:
+            # Music just stopped or was muted - restart the loop from the
+            # top (fades up from dark) rather than jumping in mid-pulse.
+            self._led_music_mode = False
+            self._led_idle_phase_start = time.time()
+            self._led_last_rgb = None
         colors = self.led_idle_colors
         if not colors:
             return
@@ -642,6 +676,46 @@ class Slots(Widget):
         if rgb != self._led_last_rgb:   # skip redundant strip refreshes
             self._led_last_rgb = rgb
             ledStrip.set_all(*rgb)
+
+    def _led_music_frame(self):
+        """One frame of the music lights:
+          - a bar grows out from the middle of the strip with the bass
+          - every beat flashes the whole strip and steps to the next color,
+            harder on strong beats, fading out quickly after
+        """
+        light_map = self._music_map
+        n = self.led_count
+        colors = self.led_music_colors
+        if n <= 0 or not colors:
+            return
+        t = time.time() - self._music_started_at - self.led_music_offset
+        energy = light_map['energy']
+        idx = int(t * light_map['fps'])
+        e = energy[idx] / 100.0 if 0 <= idx < len(energy) else 0.0
+
+        # Most recent beat at or before t
+        k = bisect.bisect_right(light_map['beat_times'], t) - 1
+        if k >= 0:
+            beat_time, strength = light_map['beats'][k]
+            flash = (0.35 + 0.65 * strength / 100.0) * math.exp(-(t - beat_time) / 0.15)
+            color = colors[k % len(colors)]
+        else:
+            flash = 0.0
+            color = colors[0]
+
+        # Bass bar: lit from the middle out to `half` LEDs each way, with a
+        # soft edge; the rest of the strip glows faintly
+        center = (n - 1) / 2.0
+        half = e * n / 2.0
+        bar_level = 0.25 + 0.75 * e
+        r0, g0, b0 = color
+        pixels = []
+        for i in range(n):
+            edge = half - abs(i - center)          # > 0 inside the bar
+            inside = max(0.0, min(1.0, edge / 3.0 + 0.5))
+            level = max(0.04 + (bar_level - 0.04) * inside, flash)
+            pixels.append((int(r0 * level), int(g0 * level), int(b0 * level)))
+        ledStrip.set_pixels(pixels)
 
     def _led_runner_frame(self, u, background=(0, 0, 0)):
         """Draws the runner at progress `u` (0-1) through its trip: down the
@@ -904,8 +978,31 @@ class Slots(Widget):
             self._advance_music_track()
             return
         self.music_sound = snd
+        self._music_map = self._load_light_map(path)
         snd.volume = 0 if self._music_should_be_silent() else 1
         snd.play()
+        # Kivy can't report playback position here, so the lights keep their
+        # own clock from the moment the track starts. The track keeps playing
+        # (muted) through spins, so this stays in step with it.
+        self._music_started_at = time.time()
+
+    def _load_light_map(self, track_path):
+        """Loads `<track>.lights.json` from make_light_maps.py, or returns
+        None if there isn't one (those tracks just use the idle loop)."""
+        if not self.led_music_lights:
+            return None
+        path = os.path.splitext(track_path)[0] + '.lights.json'
+        if not os.path.exists(path):
+            logging.info('no light map for {} - run make_light_maps.py'.format(track_path))
+            return None
+        try:
+            with open(path) as f:
+                light_map = json.load(f)
+            light_map['beat_times'] = [b[0] for b in light_map['beats']]
+            return light_map
+        except Exception as e:
+            logging.warning('could not load light map {}: {}'.format(path, e))
+            return None
 
     def _advance_music_track(self):
         self.music_index = (self.music_index + 1) % len(self.music_playlist)

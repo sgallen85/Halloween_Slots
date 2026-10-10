@@ -17,7 +17,8 @@ sudo apt-get install -y \
     libgstreamer1.0-dev gstreamer1.0-plugins-base gstreamer1.0-plugins-good \
     libmtdev-dev \
     libjpeg-dev libpng-dev zlib1g-dev \
-    alsa-utils
+    alsa-utils \
+    ffmpeg python3-numpy   # only for make_light_maps.py (music lights)
 
 echo "=== Installing Python packages ==="
 pip3 install --upgrade pip --break-system-packages
