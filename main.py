@@ -542,6 +542,8 @@ class Slots(Widget):
         #                                  from the middle with peak dots
         #                      'ripples' each beat ripples out from the middle
         #                      'pulse'   the whole strip flashes on each beat
+        #   led_music_meter_dim - ('meter' only) bar brightness between beats,
+        #                      0-1; it flares to full on each beat. 1 = no pulsing
         #   led_music_accent_threshold - ('ripples' only) how hard a beat
         #                      must hit (0-100) to ripple in the accent color
         #   led_music_offset - seconds to shift the lights vs the music;
@@ -555,6 +557,7 @@ class Slots(Widget):
         ])
         self.led_music_beats_per_color = getattr(config, 'led_music_beats_per_color', 16)
         self.led_music_style = getattr(config, 'led_music_style', 'meter')
+        self.led_music_meter_dim = getattr(config, 'led_music_meter_dim', 0.45)
         self._meter = None            # level meter state, reset per track
         self.led_music_accent_threshold = getattr(config, 'led_music_accent_threshold', 95)
         self.led_music_offset = getattr(config, 'led_music_offset', 0.04)
@@ -797,7 +800,8 @@ class Slots(Widget):
         the bass setting how big it stays between beats), then falls back
         in. A peak dot at each end holds the furthest point for a moment,
         then drops. The bar is the base color in the middle, blending to
-        the accent color at the tips."""
+        the accent color at the tips. Brightness pulses with the beat on
+        top of the movement (see led_music_meter_dim)."""
         n = self.led_count
         now = time.time()
         m = self._meter
@@ -807,11 +811,15 @@ class Slots(Widget):
         dt = min(0.1, max(0.0, now - m['last']))
         m['last'] = now
 
-        # Where the music wants the bar: bass level plus a kick on each beat
+        # Where the music wants the bar: bass level plus a kick on each beat.
+        # `flash` is the same beat, decaying a little slower, for brightness.
         target = 0.12 + 0.45 * e
+        flash = 0.0
         if k >= 0:
             beat_time, strength = self._music_map['beats'][k]
-            kick = (0.25 + 0.75 * strength / 100.0) * math.exp(-(t - beat_time) / 0.10)
+            hit = 0.25 + 0.75 * strength / 100.0
+            kick = hit * math.exp(-(t - beat_time) / 0.10)
+            flash = hit * math.exp(-(t - beat_time) / 0.22)
             target += 0.55 * kick
         target = min(1.0, target)
 
@@ -828,6 +836,12 @@ class Slots(Widget):
             m['peak_vel'] += self.LED_METER_PEAK_GRAVITY * dt
             m['peak'] = max(m['level'], m['peak'] - m['peak_vel'] * dt)
 
+        # Brightness pulses with the music too: the bar glows at a medium
+        # level between beats (a bit brighter with more bass) and flares on
+        # each beat; the strip outside the bar flickers with the beat.
+        bar_bright = min(1.0, self.led_music_meter_dim + 0.15 * e
+                         + (1.0 - self.led_music_meter_dim) * flash)
+        outside_bright = 0.03 + 0.22 * flash
         half = n / 2.0
         center = (n - 1) / 2.0
         bar = m['level'] * half
@@ -840,7 +854,7 @@ class Slots(Widget):
             mix = frac ** 1.5
             color = [b + (a - b) * mix for b, a in zip(base, accent)]
             inside = max(0.0, min(1.0, bar - d + 1.0))   # soft edge on the bar
-            level = 0.05 + (0.85 - 0.05) * inside
+            level = outside_bright + (bar_bright - outside_bright) * inside
             if abs(d - peak) < 1.0 and peak > 1.0:       # peak dot
                 level = 1.0
                 color = [min(255, c * 0.6 + 100) for c in accent]  # brighter, whiter
