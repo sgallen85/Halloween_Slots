@@ -1,18 +1,18 @@
+# macOS
 .DS_Store
-.DS_Store
-themes/.DS_Store
-themes/halloween/.DS_Store
-themes/halloween/images/.DS_Store
-.DS_Store
-themes/.DS_Store
-.DS_Store
-themes/.DS_Store
-themes/halloween/.DS_Store
-logs/spins_2026-09-15.csv
-themes/halloween/audio/.DS_Store
-themes/pizza/.DS_Store
-*.csv
 
-# Python bytecode - regenerated automatically on each machine
+# Python
 __pycache__/
 *.pyc
+
+# Mac virtual environment (scripts/setup_mac.sh) - platform-specific, never commit
+.venv/
+venv/
+
+# Game logs - one CSV per night, created automatically
+logs/
+*.csv
+
+# Debug output
+error_log
+*.bak

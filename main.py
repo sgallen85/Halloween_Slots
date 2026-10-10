@@ -2,12 +2,16 @@
 from __future__ import division
 
 import random
-import os, sys, time, math, logging, argparse, glob, subprocess, csv, atexit, json, bisect
-
-import string
+import os, sys, time, math, logging, argparse, glob, csv, atexit, json, bisect
 
 import config
-from functools import partial
+
+# All game art and sound lives in assets/ next to this file.
+ASSETS = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'assets')
+
+
+def asset(*parts):
+    return os.path.join(ASSETS, *parts)
 
 # Must happen before ANY kivy.core.audio import (including indirectly, via
 # kivy.app etc. below) - this is what makes Kivy use the SDL2 audio backend,
@@ -60,20 +64,14 @@ from collections import Counter
 from kivy.animation import Animation
 
 from kivy.app import App
-from kivy.uix.screenmanager import ScreenManager, Screen, FadeTransition
+from kivy.uix.screenmanager import Screen
 from kivy.uix.floatlayout import FloatLayout
 from kivy.clock import Clock
 from kivy.core.audio import SoundLoader
 from kivy.lang import Builder
 from kivy.core.image import Image
-from kivy.core.window import Window, Keyboard
-from kivy.properties import (AliasProperty,
-                             ListProperty,
-                             NumericProperty,
-                             ObjectProperty)
+from kivy.core.window import Window
 from kivy.uix.image import Image as ImageWidget
-from kivy.uix.button import Button
-from kivy.uix.boxlayout import BoxLayout
 from kivy.uix.widget import Widget
 from kivy.graphics import *
 from kivy.utils import get_color_from_hex
@@ -82,31 +80,6 @@ from kivy.utils import get_color_from_hex
 import viewport
 
 Builder.load_string('''
-<StartScreen>:
-    buttons: _buttons
-    name: "Start Screen"
-    canvas:
-        Color:
-            hsv: .5, .5, .3
-        Rectangle:
-            size: self.size
-    Label:
-        text: "Slots"
-        font_size: '128sp'
-        pos_hint: {'center_x': .5, 'center_y': .7}
-    GridLayout:
-        id: _buttons
-        size_hint: .10, .40
-        pos_hint: {'center_x': .5, 'center_y': .3}
-        cols: 1
-    Label:
-        text: "Press 1-9 to pick a theme  |  H in game for help  |  Esc to quit"
-        font_size: '28sp'
-        color: 1, 1, 1, 0.6
-        pos_hint: {'center_x': .5, 'y': .02}
-        size_hint: (1, None)
-        height: 60
-
 <GameScreen>:
     slots: _id_slots
     win_label: _win_label
@@ -201,7 +174,6 @@ Builder.load_string('''
 # 
 
 # should this be global?
-coinDispense = Hardware.coinDispense()
 ledStrip = Hardware.ledStrip()
 
 def _led_off_at_exit():
@@ -235,7 +207,7 @@ class GameLogger:
     Halloween night ends up in its own dated file, ready to open in a
     spreadsheet. Never raises - a logging problem should never crash the game."""
 
-    FIELDS = ['timestamp', 'theme', 'reel1', 'reel2', 'reel3',
+    FIELDS = ['timestamp', 'reel1', 'reel2', 'reel3',
               'result', 'pumpkin_count', 'payout']
 
     def __init__(self, log_dir='logs'):
@@ -244,6 +216,12 @@ class GameLogger:
             os.makedirs(log_dir, exist_ok=True)
             date_str = time.strftime('%Y-%m-%d')
             self.path = os.path.join(log_dir, 'spins_{}.csv'.format(date_str))
+            n = 2
+            while os.path.exists(self.path) and not self._header_matches(self.path):
+                # Today's file was written with different columns (an older
+                # version of the game) - start a new one rather than mix them.
+                self.path = os.path.join(log_dir, 'spins_{}_{}.csv'.format(date_str, n))
+                n += 1
             if not os.path.exists(self.path):
                 with open(self.path, 'w', newline='') as f:
                     csv.writer(f).writerow(self.FIELDS)
@@ -251,12 +229,15 @@ class GameLogger:
             logging.warning('game log disabled - could not set up {}: {}'.format(log_dir, e))
             self.path = None
 
-    def log_spin(self, theme, landed, match_type, pumpkin_count, payout):
+    def _header_matches(self, path):
+        with open(path, newline='') as f:
+            return next(csv.reader(f), None) == self.FIELDS
+
+    def log_spin(self, landed, match_type, pumpkin_count, payout):
         if self.path is None:
             return
         row = [
             time.strftime('%Y-%m-%d %H:%M:%S'),
-            theme,
             symbol_name(landed[0]), symbol_name(landed[1]), symbol_name(landed[2]),
             match_type,
             pumpkin_count,
@@ -267,18 +248,6 @@ class GameLogger:
                 csv.writer(f).writerow(row)
         except Exception as e:
             logging.warning('failed to write game log row: {}'.format(e))
-
-
-class MultiAudio:
-    _next = 0
-
-    def __init__(self, filename, count):
-        self.buf = [SoundLoader.load(filename)
-                    for i in range(count)]
-
-    def play(self):
-        self.buf[self._next].play()
-        self._next = (self._next + 1) % len(self.buf)
 
 
 ##  [1.100, .942, .759, .598, .444, .273]
@@ -457,7 +426,7 @@ class Slots(Widget):
     # idle_music_timeout in config.py.
     IDLE_MUSIC_TIMEOUT = 30.0
 
-    # Default background image filename, in themes/<theme>/images/. Override
+    # Default background image filename, in assets/images/background/. Override
     # with `background_file` in config.py to use a different image without
     # touching this file. The original 'background.png' already has its
     # reel-backing bars painted into the art; anything else gets them drawn
@@ -481,7 +450,6 @@ class Slots(Widget):
         self.outcome_weights = getattr(config, 'win_odds', self.OUTCOME_WEIGHTS)
         self.target_symbols = [0, 0, 0]
         self.game_screen = None
-        self.current_theme = None
         self.game_logger = GameLogger()
         self.background_file = getattr(config, 'background_file', self.BACKGROUND_FILE)
         # Only draw bars automatically when NOT using the original default
@@ -585,16 +553,15 @@ class Slots(Widget):
         self._music_map = None        # light map for the current track, or None
         self._led_music_mode = False  # whether the idle tick is following music
 
-    def setup(self, theme):
-        self.current_theme = theme
+    def setup(self):
         for strip in self.strips:
             del strip
         self.canvas.clear()
         self.start_time = time.time()
         self.strips = []
 
-        self._load_background_cycle(theme)
-        start_bg_path = self._resolve_start_background(theme)
+        self._load_background_cycle()
+        start_bg_path = self._resolve_start_background()
 
         with self.canvas:
             self.bg_rect = Rectangle()
@@ -610,7 +577,7 @@ class Slots(Widget):
                 Color(1, 1, 1, 1)  # reset tint before drawing the reel textures below
 
             for n in range(3):
-                core_img = Image(os.path.join("themes", theme, "images", "stripbig1.png"))
+                core_img = Image(asset("images", "stripbig1.png"))
                 strip = Strip(core_img, num_symbols=self.num_symbols)
                 strip.set_uv(self, strip.slot_to_uv(0))
                 self.strips.append(strip)
@@ -619,17 +586,14 @@ class Slots(Widget):
         self.last_time = time.time()
 
         self.sounds = {}
-        # Load any mix of .wav/.ogg/.mp3 - Kivy's SDL2 audio backend plays
-        # all three natively, so there's no need to standardize on one.
-        # config.audio_extension (if set) is included too, for backward compatibility.
-        extensions = {'.wav', '.ogg', '.mp3'}
-        configured_ext = getattr(config, 'audio_extension', None)
-        if configured_ext:
-            extensions.add(configured_ext)
+        # Sound effects: assets/audio/ and assets/audio/reels/, any mix of
+        # .wav/.ogg/.mp3 (Kivy's SDL2 audio plays all three). Each is keyed
+        # by filename without extension. audio/background/ is the music
+        # playlist - loaded separately, one song at a time.
         files = []
-        for ext in extensions:
-            files += glob.glob(os.path.join("themes", theme, 'audio', "*" + ext))
-            files += glob.glob(os.path.join("themes", theme, 'audio', "*/*" + ext))
+        for folder in (asset('audio'), asset('audio', 'reels')):
+            for ext in ('.wav', '.ogg', '.mp3'):
+                files += glob.glob(os.path.join(folder, '*' + ext))
         for fn in files:
             path, f = os.path.split(fn)
             f, ext = os.path.splitext(f)
@@ -642,7 +606,7 @@ class Slots(Widget):
                 logging.warning('sound failed to load (will play silently): {}'.format(fn))
             self.sounds[f] = snd
 
-        self._load_background_music(theme)
+        self._load_background_music()
         self._led_set_idle()
 
     def _led_to_rgb255(self, float_color):
@@ -898,13 +862,13 @@ class Slots(Widget):
                 st['last'] = frame
                 ledStrip.set_pattern(st['chase'], offset)
 
-    def _load_background_cycle(self, theme):
-        """Finds all images in themes/<theme>/images/background/ for the B
-        key to cycle through."""
+    def _load_background_cycle(self):
+        """Finds all images in assets/images/background/ for the B key to
+        cycle through."""
         extensions = ('.png', '.jpg', '.jpeg')
         files = []
         for ext in extensions:
-            files += glob.glob(os.path.join("themes", theme, "images", "background", "*" + ext))
+            files += glob.glob(asset("images", "background", "*" + ext))
         files.sort()
         self.bg_cycle_files = files
 
@@ -915,25 +879,14 @@ class Slots(Widget):
                 return i
         return -1
 
-    def _resolve_start_background(self, theme):
-        """Figures out the actual starting background path, trying a few
-        places in order, so a config.py that still names an old location
-        (e.g. after moving everything into images/background/) degrades
-        gracefully instead of rendering blank:
-          1. themes/<theme>/images/<background_file>  (the classic location)
-          2. themes/<theme>/images/background/<background_file>  (same
-             filename, but now inside the cycle folder)
-          3. the first image found in images/background/, if any
-        """
-        direct = os.path.join("themes", theme, "images", self.background_file)
-        if os.path.exists(direct):
-            self.bg_cycle_index = self._find_cycle_index(direct)
-            return direct
-
-        in_cycle_folder = os.path.join("themes", theme, "images", "background", self.background_file)
-        if os.path.exists(in_cycle_folder):
-            self.bg_cycle_index = self._find_cycle_index(in_cycle_folder)
-            return in_cycle_folder
+    def _resolve_start_background(self):
+        """The starting background: config.background_file from
+        assets/images/background/, or the first image there if that file
+        isn't found."""
+        path = asset("images", "background", self.background_file)
+        if os.path.exists(path):
+            self.bg_cycle_index = self._find_cycle_index(path)
+            return path
 
         if self.bg_cycle_files:
             logging.warning(
@@ -946,7 +899,7 @@ class Slots(Widget):
             "background_file '{}' not found, and images/background/ has no "
             "images either - background will likely render blank".format(self.background_file))
         self.bg_cycle_index = -1
-        return direct
+        return path
 
     def cycle_background(self):
         """B key. Returns a short description for the notification."""
@@ -960,8 +913,8 @@ class Slots(Widget):
         return "Background {}/{} - {}".format(self.bg_cycle_index + 1,
                                                len(self.bg_cycle_files), name)
 
-    def _load_background_music(self, theme):
-        """Scans themes/<theme>/audio/background/ for music files and builds
+    def _load_background_music(self):
+        """Scans assets/audio/background/ for music files and builds
         a shuffled playlist. The playlist is always built regardless of
         music_enabled, so M can still start it manually even when
         start_with_music is False in config.py - music_enabled only
@@ -971,13 +924,9 @@ class Slots(Widget):
         self.music_sound = None
         self.last_activity_time = time.time()
 
-        extensions = {'.wav', '.ogg', '.mp3'}
-        configured_ext = getattr(config, 'audio_extension', None)
-        if configured_ext:
-            extensions.add(configured_ext)
         files = []
-        for ext in extensions:
-            files += glob.glob(os.path.join("themes", theme, 'audio', 'background', "*" + ext))
+        for ext in ('.wav', '.ogg', '.mp3'):
+            files += glob.glob(asset('audio', 'background', '*' + ext))
         random.shuffle(files)
         self.music_playlist = files
 
@@ -1066,7 +1015,7 @@ class Slots(Widget):
         None if there isn't one (those tracks just use the idle loop)."""
         path = os.path.splitext(track_path)[0] + '.lights.json'
         if not os.path.exists(path):
-            logging.info('no light map for {} - run make_light_maps.py'.format(track_path))
+            logging.info('no light map for {} - run tools/make_light_maps.py'.format(track_path))
             return None
         try:
             with open(path) as f:
@@ -1177,9 +1126,9 @@ class Slots(Widget):
         return self.size[1] / (Strip.WINDOW_FRACTION * Strip.WINDOW_REFERENCE_N)
 
     def start_jackpot_celebration(self):
-        if self.game_screen is None or not self.current_theme:
+        if self.game_screen is None:
             return
-        icon_dir = os.path.join("themes", self.current_theme, "images", "128")
+        icon_dir = asset("images", "icons")
         icon_paths = []
         for name in SYMBOL_NAMES[:self.num_symbols]:
             path = os.path.join(icon_dir, name + ".png")
@@ -1188,9 +1137,9 @@ class Slots(Widget):
         self.game_screen.win_celebration.start(icon_paths, icon_size=self.reel_icon_pixel_size())
 
     def start_triple_celebration(self, matched_symbol):
-        if self.game_screen is None or not self.current_theme:
+        if self.game_screen is None:
             return
-        icon_path = os.path.join("themes", self.current_theme, "images", "128",
+        icon_path = os.path.join(asset("images", "icons"),
                                   symbol_name(matched_symbol) + ".png")
         if not os.path.exists(icon_path):
             return
@@ -1249,8 +1198,8 @@ class Slots(Widget):
         # animation (below) automatically fades them in/out too - no
         # separate animation needed here.
         icon_path = None
-        if pumpkin_count >= 1 and self.current_theme:
-            candidate = os.path.join("themes", self.current_theme, "images", "128",
+        if pumpkin_count >= 1:
+            candidate = os.path.join(asset("images", "icons"),
                                       symbol_name(self.pumpkin_symbol) + ".png")
             if os.path.exists(candidate):
                 icon_path = candidate
@@ -1322,7 +1271,7 @@ class Slots(Widget):
             match_type, payout, pumpkin_count = self.calculate_payout(self.landed)
             self.last_match_type = match_type
             self.last_payout = payout
-            self.game_logger.log_spin(self.current_theme, self.landed, match_type,
+            self.game_logger.log_spin(self.landed, match_type,
                                        pumpkin_count, payout)
 
             self.play_result_sound(match_type, pumpkin_count)
@@ -1348,7 +1297,6 @@ class Slots(Widget):
                 self._led_flash(self.led_win_colors, show_secs, interval=0.15)
             else:
                 self._led_set_idle()
-            coinDispense.dispenseCoin(payout)
             self.state = 'idle'
 
     def play_result_sound(self, match_type, pumpkin_count):
@@ -1356,7 +1304,7 @@ class Slots(Widget):
         dedicated jackpot sound, falling back to the generic 'win' sound
         for anything not recorded yet, so missing audio never breaks a spin.
 
-        Expected filenames in the theme's audio folder (any extension):
+        Expected filenames in assets/audio/ or assets/audio/reels/ (any extension):
           jackpot            - plays on 3 pumpkins
           win-<icon name>    - e.g. win-vampire, win-pumpkin, win-skeleton;
                                 used for BOTH a double and a triple of that icon
@@ -1378,10 +1326,10 @@ class Slots(Widget):
             snd.play()
 
 class GameScreen(Screen):
-    playing = False
 
-    def start_game(self, theme):
-        self.slots.setup(theme)
+    def start_game(self, hardware_button):
+        self.hardware_button = hardware_button
+        self.slots.setup()
         self.slots.game_screen = self
         self.slots.on_size()
         self.timer = Clock.schedule_interval(self.update_timer, 0)
@@ -1395,7 +1343,6 @@ class GameScreen(Screen):
         ('L',     'Lights: follow the music / normal loop'),
         ('[  ]',  'Music lights earlier / later'),
         ('H',     'Show / hide this help'),
-        ('Q',     'Back to the start screen'),
         ('Esc',   'Quit the game'),
     ]
 
@@ -1406,9 +1353,6 @@ class GameScreen(Screen):
             self.slots.start_spin()
         elif key == "h":
             self.toggle_help()
-        elif key == "q":
-            self.hide_help()
-            self.manager.current = "Start Screen"
         elif key == "m":
             self.show_status(self.slots.toggle_music_mute())
         elif key == "s":
@@ -1477,196 +1421,75 @@ class GameScreen(Screen):
         (Animation(duration=2.5) + Animation(opacity=0, duration=0.5)).start(label)
         logging.info(message)
 
-    def update_timer(self, i=None, val=None):
-        if self.manager.hardwareButton.checkButton():
+    def update_timer(self, dt):
+        if self.hardware_button.checkButton():
+            self.hide_help()
             self.slots.start_spin()
-
         self.slots.update()
-        if not self.playing:
-            return  # don't move bird or pipes
-
-        if self.manager.test_game_over():
-            snd_game_over.play()
-            self.playing = False
-
-class StartScreen(Screen):
-  def __init__(self, **kwargs):
-    super(Screen, self).__init__(**kwargs)
-
-
-  def build(self):
-    #manager = kwargs['manager']
-    themepaths = glob.glob("themes/*")
-
-    self.themes = []
-    for themepath in themepaths:
-      if not os.path.isdir(themepath): continue
-      path, theme = os.path.split(themepath)
-      self.themes.append(theme)
-
-    gl = self.buttons
-    gl.size_hint = (.2, .1*len(self.themes))
-
-    for theme in self.themes:
-      bl = BoxLayout(size_hint=(.3, .3))
-      gl.add_widget(bl)
-      b = Button(text=theme, font_size='64sp', size_hint=(.9, .9), 
-                 on_press=partial(self.manager.start_game, theme))
-      bl.add_widget(b)
-
-  def on_gamepad_down(self, obj, gamepad, buttonid):
-    i = buttonid
-    if i < len(self.themes):
-      theme = self.themes[i]
-      self.manager.start_game(theme)
-      
-  def on_keyboard_down(self, keyboard, keycode, text, modifiers):
-    if keycode[1] in string.digits:
-      i = int(keycode[1])
-      if i==0: i=10
-      i = i - 1
-      if i < len(self.themes):
-        theme = self.themes[i]
-        self.manager.start_game(theme)
-
-class SlotScreenManager(ScreenManager):
-  hardwareButton = Hardware.hardwareButton()
-
-  def start_game(self, theme, *args):
-    self.current = "Game Screen"
-
-    self.game_screen.start_game(theme)
 
 class Slot(App):
 
     def build(self):
-      self.root = viewport.Viewport(size=(1920,1080), do_scale=True)
-      self.manager = SlotScreenManager()
-      self.root.add_widget(self.manager)
+        self.root = viewport.Viewport(size=(1920, 1080), do_scale=True)
+        self.game_screen = GameScreen()
+        self.root.add_widget(self.game_screen)
 
-      self.manager.start_screen = StartScreen()
-      self.manager.add_widget(self.manager.start_screen)
-
-      self.manager.game_screen = GameScreen()
-      self.manager.add_widget(self.manager.game_screen)
-
-      self._keyboard = Window.request_keyboard(self._keyboard_closed, self.manager, "text")
-      self._keyboard.bind(on_key_down=self.on_keyboard_down)
-
-      self._gamepad = Window.bind(on_joy_button_down=self.on_gamepad_down)
-
-      self.current = "Start Screen"
-
-      return self.root
-
-    def _keyboard_closed(self):
-      self._keyboard.unbind(on_key_down=self._on_keyboard_down)
-      self._keyboard = None
-
-    def on_gamepad_down(self, obj, gamepad, buttonid):
-      self.manager.current_screen.on_gamepad_down(obj, gamepad, buttonid)
-
-    def on_keyboard_down(self, keyboard, keycode, text, modifiers):
-      if keycode[1] == 'escape':
-        self.clean_exit()
-        return
-      self.manager.current_screen.on_keyboard_down(keycode, keycode, text, modifiers)
-
-    def clean_exit(self):
-      logging.warning('clean exit requested (escape)')
-      try:
-        Clock.unschedule(self.manager.game_screen.timer)
-      except Exception:
-        pass
-      try:
-        self.manager.game_screen.slots.led_shutdown()
-      except Exception:
-        pass
-      try:
-        import RPi.GPIO as GPIO
-        GPIO.cleanup()
-      except Exception:
-        pass
-      # Kivy's normal App.stop()/window teardown can occasionally hang on the
-      # Pi's KMS/DRM fullscreen driver. Rather than wait on that, terminate the
-      # process immediately once our own cleanup above has run.
-      os._exit(0)
+        self._keyboard = Window.request_keyboard(self._keyboard_closed, self.game_screen, "text")
+        self._keyboard.bind(on_key_down=self.on_keyboard_down)
+        return self.root
 
     def on_start(self):
-        self.spacing = 0.5 * self.root.width
-        self.manager.start_screen.build()
-        # if we have config.theme set, let's jump right to that theme
-        theme = getattr(config, 'theme', None)
-        if not theme:
-            logging.warning('no theme set in config.py - staying on the start screen')
-        else:
-            try:
-                self.manager.start_game(theme)
-            except Exception as e:
-                logging.warning('failed to auto-start theme {!r}: {}'.format(theme, e))
+        self.game_screen.start_game(Hardware.hardwareButton())
 
-        if 0:
-          self.slots = self.root.ids.slots
-          #self.bird = self.root.ids.bird
-          Clock.schedule_interval(self.update, 0.004)
+    def _keyboard_closed(self):
+        self._keyboard.unbind(on_key_down=self.on_keyboard_down)
+        self._keyboard = None
 
-          Window.bind(on_key_down=self.on_key_down)
-          self.slots.on_touch_down = self.user_action
+    def on_keyboard_down(self, keyboard, keycode, text, modifiers):
+        if keycode[1] == 'escape':
+            self.clean_exit()
+            return
+        self.game_screen.on_keyboard_down(keyboard, keycode, text, modifiers)
 
-    def update(self, nap):
-        if self.hardwareButton.checkButton():
-            self.user_action()
+    def clean_exit(self):
+        logging.warning('clean exit requested (escape)')
+        try:
+            Clock.unschedule(self.game_screen.timer)
+        except Exception:
+            pass
+        try:
+            self.game_screen.slots.led_shutdown()
+        except Exception:
+            pass
+        try:
+            import RPi.GPIO as GPIO
+            GPIO.cleanup()
+        except Exception:
+            pass
+        # Kivy's normal App.stop()/window teardown can occasionally hang on the
+        # Pi's KMS/DRM fullscreen driver. Rather than wait on that, terminate the
+        # process immediately once our own cleanup above has run.
+        os._exit(0)
 
-        self.slots.update()
-        if not self.playing:
-            return  # don't move bird or pipes
-
-        if self.test_game_over():
-            snd_game_over.play()
-            self.playing = False
-
-
-    def user_action(self, *args):
-        self.slots.start_spin()
 
 def parse_args(argv):
-  parser = argparse.ArgumentParser(
-    formatter_class=argparse.ArgumentDefaultsHelpFormatter,
-    description=__doc__)
-
-  parser.add_argument("-t", "--test", dest="test_flag", 
-                    default=False,
-                    action="store_true",
-                    help="Run test function")
-  parser.add_argument("--log-level", type=str,
-                      choices=["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"],
-                      help="Desired console log level")
-  parser.add_argument("-d", "--debug", dest="log_level", action="store_const",
-                      const="DEBUG",
-                      help="Activate debugging")
-  parser.add_argument("-q", "--quiet", dest="log_level", action="store_const",
-                      const="CRITICAL",
-                      help="Quite mode")
-
-  args = parser.parse_args(argv[1:])
-
-  return parser, args
+    parser = argparse.ArgumentParser(description="Halloween Slots")
+    parser.add_argument("--log-level", default="WARNING",
+                        choices=["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"],
+                        help="how much to print to the console")
+    parser.add_argument("-d", "--debug", dest="log_level", action="store_const",
+                        const="DEBUG", help="same as --log-level DEBUG")
+    return parser.parse_args(argv[1:])
 
 
-def main(argv, stdout, environ):
-  if sys.version_info < (3, 0): reload(sys); sys.setdefaultencoding('utf8')
+def main(argv):
+    args = parse_args(argv)
+    logging.basicConfig(format="[%(asctime)s] %(levelname)-8s %(message)s",
+                        datefmt="%m/%d %H:%M:%S", level=args.log_level)
+    Window.clearcolor = get_color_from_hex("000000")
+    Hardware.setup()
+    Slot().run()
 
-  parser, args = parse_args(argv)
-
-  logging.basicConfig(format="[%(asctime)s] %(levelname)-8s %(message)s", 
-                    datefmt="%m/%d %H:%M:%S", level=args.log_level)
-
-  Window.clearcolor = get_color_from_hex("000000")
-  
-  Hardware.setup()
-
-  Slot().run()
-  
 
 if __name__ == '__main__':
-  main(sys.argv, sys.stdout, os.environ)
+    main(sys.argv)

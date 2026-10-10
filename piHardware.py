@@ -17,19 +17,6 @@ def setup():
     subprocess.call(['amixer', 'cset', "numid=1,iface=MIXER,name='PCM Playback Volume'", '100'])
 
 
-class coinDispense:
-    """
-    No automated physical payout hardware is connected. Payouts are tracked
-    in the CSV game log instead (see GameLogger in main.py), so this is a
-    no-op - candy is handed out manually.
-    """
-    def __init__(self):
-        pass
-
-    def dispenseCoin(self, number):
-        pass
-
-
 class ledStrip:
     """
     Controls a WS2812B LED strip via rpi_ws281x. Defaults to GPIO19 (PWM
