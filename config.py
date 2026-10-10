@@ -39,7 +39,7 @@ start_with_music = False        # False = music only starts when you press M
 # ----------------------------------------------------------------------------
 led_pin = 21                    # keep on GPIO21 (channel 0) - other pins clash with the audio
 led_channel = 0
-led_count = 100
+led_count = 60
 led_brightness = 100            # overall brightness 0-255; lower if the strip flickers
 
 # Idle loop: orange pulse, green pulse, purple runner over green, repeat with orange
