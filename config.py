@@ -47,3 +47,5 @@ led_spin_interval = 0.2                          # seconds between spin colors s
 led_brightness = 100                          # overall strip brightness 0-255
 led_runner_seconds = 5.0                  # runner speed (round trip)
 led_runner_background_level = 0.3       # 1.0 = full-brightness background, lower = more contrast
+led_runner_seconds = 5.0                  # runner speed (round trip)
+led_runner_background_level = 0.3       # 1.0 = full-brightness background, lower = more contrast
