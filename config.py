@@ -60,6 +60,6 @@ led_spin_interval = 0.2
 # Music lights: while music plays, the strip flashes to the beat.
 # Run tools/make_light_maps.py after adding songs to assets/audio/background/.
 led_music_lights = True         # False = start with the normal idle loop (L key toggles)
-led_music_offset = 0.0          # seconds; raise if lights run early, lower if late ([ and ] adjust live)
+led_music_offset = 0.04         # seconds; raise if lights run early, lower if late ([ and ] adjust live)
 led_music_beats_per_color = 16  # beats before the color changes
 #led_music_colors = [(255, 50, 0), (0, 200, 15), (140, 0, 255)]

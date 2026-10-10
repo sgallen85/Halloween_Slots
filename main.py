@@ -548,7 +548,7 @@ class Slots(Widget):
             (140, 0, 255),   # purple
         ])
         self.led_music_beats_per_color = getattr(config, 'led_music_beats_per_color', 16)
-        self.led_music_offset = getattr(config, 'led_music_offset', 0.0)
+        self.led_music_offset = getattr(config, 'led_music_offset', 0.04)
         self._music_started_at = 0.0
         self._music_map = None        # light map for the current track, or None
         self._led_music_mode = False  # whether the idle tick is following music
