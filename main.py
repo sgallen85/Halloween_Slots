@@ -861,6 +861,24 @@ class Slots(Widget):
             pixels.append((int(color[0] * level), int(color[1] * level), int(color[2] * level)))
         ledStrip.set_pixels(pixels)
 
+    LED_MUSIC_STYLES = ['meter', 'ripples', 'pulse']
+    LED_MUSIC_STYLE_NAMES = {'meter': 'Meter', 'ripples': 'Ripples', 'pulse': 'Pulse'}
+
+    def music_style_name(self):
+        return self.LED_MUSIC_STYLE_NAMES.get(self.led_music_style, self.led_music_style)
+
+    def cycle_music_style(self):
+        """K key: meter -> ripples -> pulse -> meter. Returns a short
+        description for the notification."""
+        styles = self.LED_MUSIC_STYLES
+        i = styles.index(self.led_music_style) if self.led_music_style in styles else -1
+        self.led_music_style = styles[(i + 1) % len(styles)]
+        self._meter = None   # start the meter fresh rather than mid-bounce
+        message = "Music light style: " + self.music_style_name()
+        if not self.led_music_lights:
+            message += " (music lights are OFF - press L)"
+        return message
+
     def toggle_music_lights(self):
         """L key: switch between music lights and the normal idle loop."""
         self.led_music_lights = not self.led_music_lights
@@ -1484,6 +1502,7 @@ class GameScreen(Screen):
         ('S',     'Skip to the next song'),
         ('B',     'Next background picture'),
         ('L',     'Lights: follow the music / normal loop'),
+        ('K',     'Music light style: meter / ripples / pulse'),
         ('[  ]',  'Music lights earlier / later'),
         ('H',     'Show / hide this help'),
         ('Esc',   'Quit the game'),
@@ -1505,6 +1524,8 @@ class GameScreen(Screen):
         elif key == "l":
             on = self.slots.toggle_music_lights()
             self.show_status("Music lights: {}".format("ON" if on else "OFF (normal loop)"))
+        elif key == "k":
+            self.show_status(self.slots.cycle_music_style())
         elif text in ('[', ']'):
             offset = self.slots.nudge_music_offset(-0.02 if text == '[' else 0.02)
             self.show_status("Light timing: {:+.2f}s".format(offset))
@@ -1529,6 +1550,7 @@ class GameScreen(Screen):
             "[b]Right now[/b]",
             "Music:          " + music,
             "Music lights:   " + ("ON" if slots.led_music_lights else "OFF (normal loop)"),
+            "Light style:    " + slots.music_style_name(),
             "Light timing:   {:+.2f}s   (copy into config.py to keep)".format(slots.led_music_offset),
             "",
             "[color=aaaaaa]Press H to close[/color]",

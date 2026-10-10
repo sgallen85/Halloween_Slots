@@ -114,6 +114,7 @@ and light settings.
 | S | Skip to the next song |
 | B | Next background picture |
 | L | LEDs: follow the music / normal loop |
+| K | Music light style: meter / ripples / pulse |
 | [ and ] | Shift the music lights earlier / later by 0.02 s |
 | H | Show / hide help |
 | Esc | Quit |
@@ -149,8 +150,9 @@ keys last until the game restarts. To keep one, copy the value into
   level meter that bounces out from the middle with the beat, with peak
   dots at each end. Strong beats push it further, and the brightness
   flares on each beat and dims in between. The color fades to the
-  next one every 16 beats. Press **L** to switch back to the normal loop.
-  `led_music_style` in `config.py` also offers `'ripples'` and `'pulse'`.
+  next one every 16 beats. Press **L** to switch back to the normal loop,
+  and **K** to try the other styles (`'ripples'`, `'pulse'`). Set the
+  starting style with `led_music_style` in `config.py`.
 - **After adding songs**, build their beat maps (on the Pi or a Mac with
   ffmpeg and numpy):
   ```bash
