@@ -145,11 +145,11 @@ keys last until the game restarts. To keep one, copy the value into
   once nobody has spun for `idle_music_timeout` seconds.
 - **LEDs when idle:** orange pulse, green pulse, purple runner over green,
   then the same with orange, on repeat.
-- **LEDs with music:** if a song has a beat map, the strip follows it
-  instead. Each beat flashes the strip and sends a ripple from the middle
-  out to both ends; strong beats ripple in an accent color, and the base
-  color fades to the next one every 16 beats. Press **L** to switch back
-  to the normal loop.
+- **LEDs with music:** if a song has a beat map, the strip turns into a
+  level meter that bounces out from the middle with the beat, with peak
+  dots at each end. Strong beats push it further. The color fades to the
+  next one every 16 beats. Press **L** to switch back to the normal loop.
+  `led_music_style` in `config.py` also offers `'ripples'` and `'pulse'`.
 - **After adding songs**, build their beat maps (on the Pi or a Mac with
   ffmpeg and numpy):
   ```bash

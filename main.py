@@ -538,9 +538,12 @@ class Slots(Widget):
         #                      (the L key toggles this while running)
         #   led_music_colors - colors the lights step through
         #   led_music_beats_per_color - beats before moving to the next color
-        #   led_music_ripples - False for whole-strip pulses only (no ripples)
-        #   led_music_accent_threshold - how hard a beat must hit (0-100) to
-        #                      ripple in the accent color; higher = rarer
+        #   led_music_style  - 'meter'   (default) a level meter bouncing out
+        #                                  from the middle with peak dots
+        #                      'ripples' each beat ripples out from the middle
+        #                      'pulse'   the whole strip flashes on each beat
+        #   led_music_accent_threshold - ('ripples' only) how hard a beat
+        #                      must hit (0-100) to ripple in the accent color
         #   led_music_offset - seconds to shift the lights vs the music;
         #                      positive = lights later, negative = earlier
         #                      ([ and ] keys adjust this while running)
@@ -551,7 +554,8 @@ class Slots(Widget):
             (140, 0, 255),   # purple
         ])
         self.led_music_beats_per_color = getattr(config, 'led_music_beats_per_color', 16)
-        self.led_music_ripples = getattr(config, 'led_music_ripples', True)
+        self.led_music_style = getattr(config, 'led_music_style', 'meter')
+        self._meter = None            # level meter state, reset per track
         self.led_music_accent_threshold = getattr(config, 'led_music_accent_threshold', 95)
         self.led_music_offset = getattr(config, 'led_music_offset', 0.04)
         self._music_started_at = 0.0
@@ -702,13 +706,14 @@ class Slots(Widget):
     LED_RIPPLE_WIDTH = 4.0           # LEDs either side of a ripple's crest
 
     def _led_music_frame(self):
-        """One frame of the music lights, built in layers:
-          - base color: changes every `led_music_beats_per_color` beats,
-            crossfading over a second or so instead of switching
-          - glow: the base color, rising and falling with the bass
-          - beat flash: a quick whole-strip flash on every beat
-          - ripples: each beat sends a ring of light from the middle out to
-            both ends; strong beats ripple in the next color (the accent)
+        """One frame of the music lights. Every style shares a base color
+        that changes every `led_music_beats_per_color` beats, crossfading
+        over a second or so, plus an accent (the next color).
+          meter:   see _led_meter_frame
+          ripples: bass glow + soft beat flash, and each beat sends a ring
+                   of light from the middle out to both ends; strong beats
+                   ripple in the accent color
+          pulse:   bass glow + a whole-strip flash on every beat
         """
         light_map = self._music_map
         colors = self.led_music_colors
@@ -726,24 +731,30 @@ class Slots(Widget):
         # Base color, crossfading from the previous phrase's color
         per = max(1, self.led_music_beats_per_color)
         phrase = k // per if k >= 0 else 0
+        def lerp(a, b, f):
+            return tuple(x + (y - x) * f for x, y in zip(a, b))
         base = colors[phrase % len(colors)]
+        accent = colors[(phrase + 1) % len(colors)]
         if phrase > 0:
             since = t - beat_times[phrase * per]
             mix = min(1.0, since / self.LED_MUSIC_FADE_SECONDS)
-            prev = colors[(phrase - 1) % len(colors)]
-            base = tuple(p + (c - p) * mix for p, c in zip(prev, base))
-        accent = colors[(phrase + 1) % len(colors)]
+            base = lerp(colors[(phrase - 1) % len(colors)], base, mix)
+            accent = lerp(colors[phrase % len(colors)], accent, mix)
+
+        if self.led_music_style == 'meter':
+            self._led_meter_frame(t, e, k, base, accent)
+            return
 
         # Whole-strip level: bass glow, plus a quick flash on each beat
         level = 0.08 + 0.32 * e
         if k >= 0:
             beat_time, strength = beats[k]
-            flash_size = 0.35 if self.led_music_ripples else 1.0
+            flash_size = 0.35 if self.led_music_style == 'ripples' else 1.0
             flash = flash_size * (0.45 + 0.55 * strength / 100.0) * math.exp(-(t - beat_time) / 0.22)
             level = max(level, flash)
         r0, g0, b0 = base[0] * level, base[1] * level, base[2] * level
 
-        if not self.led_music_ripples:
+        if self.led_music_style != 'ripples':
             ledStrip.set_all(int(r0), int(g0), int(b0))
             return
 
@@ -773,6 +784,67 @@ class Slots(Widget):
                     g += color[1] * a
                     b += color[2] * a
             pixels.append((min(255, int(r)), min(255, int(g)), min(255, int(b))))
+        ledStrip.set_pixels(pixels)
+
+    # Level meter feel
+    LED_METER_FALL = 1.4        # how fast the bar drops back (fraction of full width per second)
+    LED_METER_PEAK_HOLD = 0.35  # seconds the peak dots wait before falling
+    LED_METER_PEAK_GRAVITY = 3.0  # how fast the peak dots accelerate back in
+
+    def _led_meter_frame(self, t, e, k, base, accent):
+        """Music lights as a level meter, mirrored from the middle of the
+        strip: the bar jumps out on each beat (further on strong beats, with
+        the bass setting how big it stays between beats), then falls back
+        in. A peak dot at each end holds the furthest point for a moment,
+        then drops. The bar is the base color in the middle, blending to
+        the accent color at the tips."""
+        n = self.led_count
+        now = time.time()
+        m = self._meter
+        if m is None:
+            m = self._meter = {'level': 0.0, 'peak': 0.0, 'peak_vel': 0.0,
+                               'peak_at': now, 'last': now}
+        dt = min(0.1, max(0.0, now - m['last']))
+        m['last'] = now
+
+        # Where the music wants the bar: bass level plus a kick on each beat
+        target = 0.12 + 0.45 * e
+        if k >= 0:
+            beat_time, strength = self._music_map['beats'][k]
+            kick = (0.25 + 0.75 * strength / 100.0) * math.exp(-(t - beat_time) / 0.10)
+            target += 0.55 * kick
+        target = min(1.0, target)
+
+        # Jump up instantly, fall back steadily - that's the bounce
+        if target > m['level']:
+            m['level'] = target
+        else:
+            m['level'] = max(target, m['level'] - self.LED_METER_FALL * dt)
+
+        # Peak dots: pushed out by the bar, hold, then fall with gravity
+        if m['level'] >= m['peak']:
+            m['peak'], m['peak_vel'], m['peak_at'] = m['level'], 0.0, now
+        elif now - m['peak_at'] > self.LED_METER_PEAK_HOLD:
+            m['peak_vel'] += self.LED_METER_PEAK_GRAVITY * dt
+            m['peak'] = max(m['level'], m['peak'] - m['peak_vel'] * dt)
+
+        half = n / 2.0
+        center = (n - 1) / 2.0
+        bar = m['level'] * half
+        peak = m['peak'] * half
+        pixels = []
+        for i in range(n):
+            d = abs(i - center) + 0.5          # distance from the middle, in LEDs
+            frac = min(1.0, d / half)
+            # base color in the middle, blending to the accent at the tips
+            mix = frac ** 1.5
+            color = [b + (a - b) * mix for b, a in zip(base, accent)]
+            inside = max(0.0, min(1.0, bar - d + 1.0))   # soft edge on the bar
+            level = 0.05 + (0.85 - 0.05) * inside
+            if abs(d - peak) < 1.0 and peak > 1.0:       # peak dot
+                level = 1.0
+                color = [min(255, c * 0.6 + 100) for c in accent]  # brighter, whiter
+            pixels.append((int(color[0] * level), int(color[1] * level), int(color[2] * level)))
         ledStrip.set_pixels(pixels)
 
     def toggle_music_lights(self):
@@ -1065,6 +1137,7 @@ class Slots(Widget):
         # own clock from the moment the track starts. The track keeps playing
         # (muted) through spins, so this stays in step with it.
         self._music_started_at = time.time()
+        self._meter = None
 
     def _load_light_map(self, track_path):
         """Loads `<track>.lights.json` from make_light_maps.py, or returns
