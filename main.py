@@ -456,16 +456,29 @@ class Slots(Widget):
         #              own colors, so the LEDs and the on-screen banner agree)
         self._led_flash_event = None
         self._led_flash_state = None
-        # Idle effect: each color fades up from fully dark, back down to
-        # fully dark, holds dark briefly, then the next color starts
-        # (deep orange, green, deep orange, ...). All optional in config.py:
-        #   led_idle_colors   - list of (r, g, b) 0-255 colors to alternate through
-        #   led_pulse_seconds - seconds for one color's full fade up and back down
-        #   led_pulse_gap     - seconds the strip stays dark between colors
+        # Idle effect, repeating:
+        #   orange pulse, green pulse, purple runner over steady green,
+        #   orange pulse, green pulse, purple runner over steady orange
+        # Each pulse fades up from fully dark and back down. The runner
+        # sweeps down the strip and back once over a steady background that
+        # fades in and out with it; the background color alternates through
+        # the idle colors each round. All optional in config.py:
+        #   led_idle_colors     - list of (r, g, b) 0-255 colors to alternate through
+        #   led_pulse_seconds   - seconds for one color's full fade up and back down
+        #   led_pulse_gap       - seconds the strip stays dark between effects
+        #   led_runner_color    - (r, g, b) of the runner
+        #   led_runner_seconds  - seconds for the runner's trip there and back
+        #                         (0 turns the runner off)
+        #   led_runner_background_level - background brightness under the
+        #                         runner, 0-1 (lower makes the purple stand out)
         self.led_idle_colors = getattr(config, 'led_idle_colors',
                                        [(255, 50, 0), (0, 200, 15)])
         self.led_pulse_seconds = getattr(config, 'led_pulse_seconds', 4.0)
         self.led_pulse_gap = getattr(config, 'led_pulse_gap', 0.1)
+        self.led_runner_color = getattr(config, 'led_runner_color', (140, 0, 255))
+        self.led_runner_seconds = getattr(config, 'led_runner_seconds', 3.0)
+        self.led_runner_background_level = getattr(config, 'led_runner_background_level', 0.6)
+        self.led_count = getattr(config, 'led_count', 60)
         self._led_idle_event = None
         self._led_idle_phase_start = 0.0
         self._led_last_rgb = None
@@ -592,11 +605,31 @@ class Slots(Widget):
             return
         pulse = max(0.5, self.led_pulse_seconds)
         gap = max(0.0, self.led_pulse_gap)
+        runner = max(0.0, self.led_runner_seconds)
+        n = len(colors)
+        # One round = a pulse of each color, then a runner over a background
+        # color; the background steps backwards through the colors each
+        # round (green, then orange). Each step is followed by a short gap.
+        # The full pattern repeats after n rounds.
+        steps = []
+        for rnd in range(n):
+            steps += [('pulse', c) for c in colors]
+            if runner > 0:
+                steps.append(('runner', colors[(-1 - rnd) % n]))
+        def step_len(kind):
+            return (pulse if kind == 'pulse' else runner) + gap
         elapsed = time.time() - self._led_idle_phase_start
-        cycle, pos = divmod(elapsed, pulse + gap)
-        base = colors[int(cycle) % len(colors)]
-        if pos >= pulse:
-            level = 0.0   # dark pause before the next color
+        pos = elapsed % sum(step_len(k) for k, _ in steps)
+        for kind, base in steps:
+            if pos < step_len(kind):
+                break
+            pos -= step_len(kind)
+        if kind == 'runner' and pos < runner:
+            self._led_runner_frame(pos / runner, base)
+            self._led_last_rgb = None   # strip no longer matches any solid color
+            return
+        if kind == 'runner' or pos >= pulse:
+            level = 0.0   # dark pause between effects
         else:
             # Smooth 0 -> 1 -> 0 that starts and ends fully dark, so the color
             # change always happens while the strip is off. The 1.5 power
@@ -609,6 +642,47 @@ class Slots(Widget):
         if rgb != self._led_last_rgb:   # skip redundant strip refreshes
             self._led_last_rgb = rgb
             ledStrip.set_all(*rgb)
+
+    def _led_runner_frame(self, u, background=(0, 0, 0)):
+        """Draws the runner at progress `u` (0-1) through its trip: down the
+        strip for the first half, back for the second, over a steady
+        `background` color. It eases in and out
+        at each end, and its tail stretches with speed, so it shrinks to a
+        dot as it turns around instead of jumping."""
+        n = self.led_count
+        if n <= 0:
+            return
+        leg_u = (u * 2) % 1.0 if u < 1.0 else 1.0
+        going_out = u < 0.5
+        eased = leg_u * leg_u * (3 - 2 * leg_u)     # smoothstep
+        speed = 4 * leg_u * (1 - leg_u)            # 0 at the ends, 1 mid-leg
+        head = eased * (n - 1) if going_out else (1 - eased) * (n - 1)
+        direction = 1 if going_out else -1
+        tail = 1 + 14 * speed                      # LEDs of fading trail
+        # Fade the whole runner in at the start and out at the end of the trip
+        envelope = min(1.0, u / 0.08, (1.0 - u) / 0.08)
+        r0, g0, b0 = self.led_runner_color
+        bg_level = envelope * max(0.0, min(1.0, self.led_runner_background_level))
+        br, bgr, bb = (background[0] * bg_level, background[1] * bg_level,
+                       background[2] * bg_level)
+        bg_pixel = (int(br), int(bgr), int(bb))
+        pixels = []
+        for i in range(n):
+            d = (head - i) * direction   # > 0 means behind the head
+            if d < 0:
+                b = max(0.0, 1 + d / 1.5)          # soft leading edge
+            elif d <= 1:
+                b = 1.0
+            else:
+                b = max(0.0, 1 - (d - 1) / tail)  # fading trail
+            if b > 0:
+                # Blend from the background toward purple
+                b = (b ** 1.5) * envelope
+                pixels.append((int(br + (r0 - br) * b), int(bgr + (g0 - bgr) * b),
+                               int(bb + (b0 - bb) * b)))
+            else:
+                pixels.append(bg_pixel)
+        ledStrip.set_pixels(pixels)
 
     def led_shutdown(self):
         """Stops every LED effect and turns the strip off. Used on exit."""
