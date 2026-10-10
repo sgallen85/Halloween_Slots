@@ -12,3 +12,7 @@ logs/spins_2026-09-15.csv
 themes/halloween/audio/.DS_Store
 themes/pizza/.DS_Store
 *.csv
+
+# Python bytecode - regenerated automatically on each machine
+__pycache__/
+*.pyc
