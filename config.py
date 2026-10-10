@@ -42,3 +42,5 @@ led_pulse_gap = 0.01                              # seconds fully dark before th
 led_spin_interval = 0.2                          # seconds between spin colors swapping places
 #led_win_colors = [(0, 200, 15), (140, 0, 255), (255, 50, 0), (170, 170, 170)]  # win show: green, purple, orange, white
 led_brightness = 100                          # overall strip brightness 0-255
+led_runner_seconds = 5.0                  # runner speed (round trip)
+led_runner_background_level = 0.3       # 1.0 = full-brightness background, lower = more contrast
