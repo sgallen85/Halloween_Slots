@@ -35,6 +35,9 @@ class ledStrip:
     def set_pattern(self, colors, offset=0):
         pass
 
+    def set_pixels(self, colors):
+        pass
+
     def set_pixel(self, i, r, g, b):
         pass
 

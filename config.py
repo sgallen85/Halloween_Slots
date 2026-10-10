@@ -38,6 +38,8 @@ led_count = 200
 #led_idle_colors = [(255, 50, 0), (0, 200, 15)]   # any number of colors, cycled in order
 led_pulse_seconds = 4.0                          # time for one color to fade up from dark and back down
 led_pulse_gap = 0.01                              # seconds fully dark before the next color starts
+#led_runner_color = (140, 0, 255)                 # purple runner between pulses
+led_runner_seconds = 3.0                         # runner's trip down the strip and back (0 = off)
 #led_spin_colors = [(255, 50, 0), (0, 200, 15)]   # every-other-LED colors while the reels spin
 led_spin_interval = 0.2                          # seconds between spin colors swapping places
 #led_win_colors = [(0, 200, 15), (140, 0, 255), (255, 50, 0), (170, 170, 170)]  # win show: green, purple, orange, white

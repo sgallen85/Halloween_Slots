@@ -95,6 +95,16 @@ class ledStrip:
             self.strip.setPixelColor(i, wc[(i + offset) % n])
         self.strip.show()
 
+    def set_pixels(self, colors):
+        """Sets each LED to its own (r, g, b) from `colors`, one per LED in
+        strip order, with a single refresh. Extra LEDs are left alone."""
+        if self.strip is None:
+            return
+        count = min(len(colors), self.strip.numPixels())
+        for i in range(count):
+            self.strip.setPixelColor(i, WSColor(*colors[i]))
+        self.strip.show()
+
     def set_pixel(self, i, r, g, b):
         if self.strip is None:
             return
