@@ -99,6 +99,13 @@ Builder.load_string('''
         size_hint: .10, .40
         pos_hint: {'center_x': .5, 'center_y': .3}
         cols: 1
+    Label:
+        text: "Press 1-9 to pick a theme  |  H in game for help  |  Esc to quit"
+        font_size: '28sp'
+        color: 1, 1, 1, 0.6
+        pos_hint: {'center_x': .5, 'y': .02}
+        size_hint: (1, None)
+        height: 60
 
 <GameScreen>:
     slots: _id_slots
@@ -108,6 +115,7 @@ Builder.load_string('''
     win_icon_right: _win_icon_right
     win_celebration: _win_celebration
     status_label: _status_label
+    help_label: _help_label
     name: "Game Screen"
     FloatLayout:
         Slots:
@@ -166,6 +174,25 @@ Builder.load_string('''
             canvas.before:
                 Color:
                     rgba: 0, 0, 0, 0.6
+                Rectangle:
+                    pos: self.pos
+                    size: self.size
+        Label:
+            id: _help_label
+            text: ""
+            markup: True
+            font_name: 'RobotoMono-Regular'
+            font_size: '30sp'
+            line_height: 1.25
+            color: 1, 1, 1, 1
+            opacity: 0
+            size_hint: (None, None)
+            size: self.texture_size
+            padding: (60, 40)
+            pos_hint: {'center_x': .5, 'center_y': .5}
+            canvas.before:
+                Color:
+                    rgba: 0, 0, 0, 0.92
                 Rectangle:
                     pos: self.pos
                     size: self.size
@@ -922,10 +949,16 @@ class Slots(Widget):
         return direct
 
     def cycle_background(self):
+        """B key. Returns a short description for the notification."""
         if not self.bg_cycle_files:
-            return
+            return "No backgrounds found in images/background/"
         self.bg_cycle_index = (self.bg_cycle_index + 1) % len(self.bg_cycle_files)
         self.bg_rect.source = self.bg_cycle_files[self.bg_cycle_index]
+        name = os.path.splitext(os.path.basename(self.bg_rect.source))[0].replace('_', ' ')
+        if len(name) > 40:
+            name = name[:38].rstrip() + '...'
+        return "Background {}/{} - {}".format(self.bg_cycle_index + 1,
+                                               len(self.bg_cycle_files), name)
 
     def _load_background_music(self, theme):
         """Scans themes/<theme>/audio/background/ for music files and builds
@@ -949,18 +982,35 @@ class Slots(Widget):
         self.music_playlist = files
 
     def toggle_music_mute(self):
+        """M key. Returns a short description of the result for the
+        on-screen notification."""
+        if not self.music_playlist:
+            return "No background music found"
         if self.music_sound is None:
             # Nothing loaded yet - most likely start_with_music is False in
             # config.py, or the idle timeout just hasn't fired yet. Either
             # way, start a fresh track now rather than muting nothing.
             self.start_music_now()
-            return
+            return "Music ON - " + self.current_track_name()
         self.music_muted = not self.music_muted
         # If music is currently audible (idle, not already spin-muted),
         # apply the change immediately rather than waiting for the next
         # idle/spin transition.
         if self.state == 'idle':
             self.music_sound.volume = 0 if self.music_muted else 1
+        if self.music_muted:
+            return "Music muted"
+        return "Music ON - " + self.current_track_name()
+
+    def current_track_name(self):
+        """Readable name of the current track: "4_Thriller.mp3" -> "Thriller"."""
+        if not self.music_playlist:
+            return ""
+        name = os.path.splitext(os.path.basename(self.music_playlist[self.music_index]))[0]
+        prefix, _, rest = name.partition('_')
+        if prefix.isdigit() and rest:
+            name = rest
+        return name.replace('_', ' ')
 
     def start_music_now(self):
         if not self.music_playlist:
@@ -971,11 +1021,15 @@ class Slots(Widget):
         self.last_activity_time = time.time()
 
     def skip_music_track(self):
+        """S key. Returns a short description for the notification."""
         if not self.music_playlist:
-            return
+            return "No background music found"
         if self.music_sound is not None:
             self.music_sound.stop()
         self._advance_music_track()
+        if self.music_muted:
+            return "Next track (muted) - " + self.current_track_name()
+        return "Now playing - " + self.current_track_name()
 
     def _music_should_be_silent(self):
         return self.music_muted or self.state != 'idle'
@@ -1332,26 +1386,90 @@ class GameScreen(Screen):
         self.slots.on_size()
         self.timer = Clock.schedule_interval(self.update_timer, 0)
 
+    # Shown by the H key. Keep in step with on_keyboard_down below.
+    SHORTCUTS = [
+        ('Space', 'Spin (same as the big button)'),
+        ('M',     'Music on / mute'),
+        ('S',     'Skip to the next song'),
+        ('B',     'Next background picture'),
+        ('L',     'Lights: follow the music / normal loop'),
+        ('[  ]',  'Music lights earlier / later'),
+        ('H',     'Show / hide this help'),
+        ('Q',     'Back to the start screen'),
+        ('Esc',   'Quit the game'),
+    ]
+
     def on_keyboard_down(self, keyboard, keycode, text, modifiers):
-        if keycode[1] == "spacebar":
+        key = keycode[1]
+        if key == "spacebar":
+            self.hide_help()
             self.slots.start_spin()
-        if keycode[1] == "q":
+        elif key == "h":
+            self.toggle_help()
+        elif key == "q":
+            self.hide_help()
             self.manager.current = "Start Screen"
-        if keycode[1] == "m":
-            self.slots.toggle_music_mute()
-        if keycode[1] == "s":
-            self.slots.skip_music_track()
-        if keycode[1] == "b":
-            self.slots.cycle_background()
-        if keycode[1] == "l":
+        elif key == "m":
+            self.show_status(self.slots.toggle_music_mute())
+        elif key == "s":
+            self.show_status(self.slots.skip_music_track())
+        elif key == "b":
+            self.show_status(self.slots.cycle_background())
+        elif key == "l":
             on = self.slots.toggle_music_lights()
-            self.show_status("Music lights: {}".format("ON" if on else "OFF"))
-        if text in ('[', ']'):
+            self.show_status("Music lights: {}".format("ON" if on else "OFF (normal loop)"))
+        elif text in ('[', ']'):
             offset = self.slots.nudge_music_offset(-0.02 if text == '[' else 0.02)
             self.show_status("Light timing: {:+.2f}s".format(offset))
+        else:
+            return
+        if self.help_label.opacity:
+            self.refresh_help()   # keep the "current settings" lines up to date
+
+    def _help_text(self):
+        slots = self.slots
+        lines = ["[b][size=44sp]Keyboard shortcuts[/size][/b]", ""]
+        for key, action in self.SHORTCUTS:
+            lines.append("[b][color=ffa040]{:<6}[/color][/b]  {}".format(key, action))
+        if slots.music_sound is None:
+            music = "off"
+        elif slots.music_muted:
+            music = "muted"
+        else:
+            music = "on - " + slots.current_track_name()
+        lines += [
+            "",
+            "[b]Right now[/b]",
+            "Music:          " + music,
+            "Music lights:   " + ("ON" if slots.led_music_lights else "OFF (normal loop)"),
+            "Light timing:   {:+.2f}s   (copy into config.py to keep)".format(slots.led_music_offset),
+            "",
+            "[color=aaaaaa]Press H to close[/color]",
+        ]
+        return "\n".join(lines)
+
+    def refresh_help(self):
+        self.help_label.text = self._help_text()
+
+    def toggle_help(self):
+        if self.help_label.opacity:
+            self.hide_help()
+        else:
+            self.refresh_help()
+            Animation.cancel_all(self.status_label)
+            self.status_label.opacity = 0
+            self.help_label.opacity = 1
+
+    def hide_help(self):
+        self.help_label.opacity = 0
 
     def show_status(self, message):
         """Shows a short message in the top-left corner for a few seconds."""
+        if not message:
+            return
+        if self.help_label.opacity:
+            logging.info(message)   # help is open and already shows current settings
+            return
         label = self.status_label
         Animation.cancel_all(label)
         label.text = message
