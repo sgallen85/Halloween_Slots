@@ -39,7 +39,7 @@ start_with_music = False        # False = music only starts when you press M
 # ----------------------------------------------------------------------------
 led_pin = 21                    # keep on GPIO21 (channel 0) - other pins clash with the audio
 led_channel = 0
-led_count = 60
+led_count = 100
 led_brightness = 100            # overall brightness 0-255; lower if the strip flickers
 
 # Idle loop: orange pulse, green pulse, purple runner over green, repeat with orange
@@ -60,7 +60,7 @@ led_spin_interval = 0.2
 # Music lights: while music plays, the strip flashes to the beat.
 # Run tools/make_light_maps.py after adding songs to assets/audio/background/.
 led_music_lights = True         # False = start with the normal idle loop (L key toggles)
-led_music_offset = 0.04         # seconds; raise if lights run early, lower if late ([ and ] adjust live)
+led_music_offset = 0.12         # seconds; raise if lights run early, lower if late ([ and ] adjust live)
 led_music_beats_per_color = 16  # beats before the base color fades to the next one
 led_music_style = 'meter'       # 'meter' bounces out from the middle, 'ripples', or 'pulse' (whole strip)
 led_music_meter_dim = 0.45      # 'meter': brightness between beats (0-1); flares to full on each beat. 1 = no pulsing
