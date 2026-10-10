@@ -40,4 +40,5 @@ led_pulse_seconds = 4.0                          # time for one color to fade up
 led_pulse_gap = 0.1                              # seconds fully dark before the next color starts
 #led_spin_colors = [(255, 50, 0), (0, 200, 15)]   # every-other-LED colors while the reels spin
 led_spin_interval = 0.2                          # seconds between spin colors swapping places
-led_flash_seconds = {'jackpot': 10.0, '3 of a kind': 4.0, 'double': 3.0, 'pumpkin': 3.0}  # win flash lengths
+#led_win_colors = [(0, 200, 15), (140, 0, 255), (255, 50, 0), (170, 170, 170)]  # win show: green, purple, orange, white
+#led_brightness = 128                            # overall strip brightness 0-255
