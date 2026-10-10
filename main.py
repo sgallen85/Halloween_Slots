@@ -2,7 +2,7 @@
 from __future__ import division
 
 import random
-import os, sys, time, math, logging, argparse, glob, subprocess, csv
+import os, sys, time, math, logging, argparse, glob, subprocess, csv, atexit
 
 import string
 
@@ -158,6 +158,16 @@ Builder.load_string('''
 # should this be global?
 coinDispense = Hardware.coinDispense()
 ledStrip = Hardware.ledStrip()
+
+def _led_off_at_exit():
+    try:
+        ledStrip.off()
+    except Exception:
+        pass
+
+# Covers normal exits and uncaught exceptions. Escape uses os._exit, which
+# skips atexit, so clean_exit() also shuts the strip off explicitly.
+atexit.register(_led_off_at_exit)
 
 # Human-readable names for each strip slot, in the same order as
 # stripbig1.png (top to bottom). Used only for the CSV game log. If you add
@@ -446,7 +456,19 @@ class Slots(Widget):
         # `led_idle_color = (r, g, b)` (0-255 each) in config.py.
         self._led_flash_event = None
         self._led_flash_state = None
-        self.led_idle_color = getattr(config, 'led_idle_color', (40, 15, 0))
+        # Idle effect: slowly pulses one color up and down, then the next,
+        # alternating (deep orange, green, deep orange, ...). All optional
+        # in config.py:
+        #   led_idle_colors   - list of (r, g, b) 0-255 colors to alternate through
+        #   led_pulse_seconds - seconds for one color's full fade up and back down
+        #   led_pulse_floor   - dimmest point of the pulse, 0-1 (0 = fully dark)
+        self.led_idle_colors = getattr(config, 'led_idle_colors',
+                                       [(255, 50, 0), (0, 200, 15)])
+        self.led_pulse_seconds = getattr(config, 'led_pulse_seconds', 4.0)
+        self.led_pulse_floor = getattr(config, 'led_pulse_floor', 0.05)
+        self._led_idle_event = None
+        self._led_idle_phase_start = 0.0
+        self._led_last_rgb = None
 
         # Idle background music - starts after IDLE_MUSIC_TIMEOUT seconds of
         # no spins, pauses (and remembers position) the moment a spin starts,
@@ -529,9 +551,47 @@ class Slots(Widget):
     def _led_set_idle(self):
         if self._led_flash_event:
             return  # a flash is mid-sequence - it'll restore idle itself when done
-        ledStrip.set_all(*self.led_idle_color)
+        if self._led_idle_event:
+            return  # already pulsing - leave the phase alone
+        self._led_idle_phase_start = time.time()
+        self._led_last_rgb = None
+        # ~25 updates/sec is plenty for a slow pulse and keeps the main loop light
+        self._led_idle_event = Clock.schedule_interval(self._led_idle_tick, 1 / 25.)
+
+    def _led_idle_stop(self):
+        if self._led_idle_event:
+            self._led_idle_event.cancel()
+            self._led_idle_event = None
+
+    def _led_idle_tick(self, dt):
+        colors = self.led_idle_colors
+        if not colors:
+            return
+        t = (time.time() - self._led_idle_phase_start) / max(0.5, self.led_pulse_seconds)
+        base = colors[int(t) % len(colors)]
+        # Smooth 0 -> 1 -> 0 over one cycle. Squared because LED brightness
+        # looks non-linear - without it the pulse seems to hang near the top.
+        wave = 0.5 - 0.5 * math.cos(2 * math.pi * (t % 1.0))
+        floor = self.led_pulse_floor
+        level = floor + (1.0 - floor) * (wave * wave)
+        rgb = (int(base[0] * level), int(base[1] * level), int(base[2] * level))
+        if rgb != self._led_last_rgb:   # skip redundant strip refreshes
+            self._led_last_rgb = rgb
+            ledStrip.set_all(*rgb)
+
+    def led_shutdown(self):
+        """Stops every LED effect and turns the strip off. Used on exit."""
+        self._led_idle_stop()
+        if self._led_flash_event:
+            self._led_flash_event.cancel()
+            self._led_flash_event = None
+        try:
+            ledStrip.off()
+        except Exception:
+            pass
 
     def _led_flash(self, rgb, cycles=4, interval=0.15):
+        self._led_idle_stop()   # the pulse and the flash would fight over the strip
         if self._led_flash_event:
             self._led_flash_event.cancel()
         self._led_flash_state = {'count': 0, 'total': cycles * 2, 'rgb': rgb}
@@ -1081,6 +1141,10 @@ class Slot(App):
       logging.warning('clean exit requested (escape)')
       try:
         Clock.unschedule(self.manager.game_screen.timer)
+      except Exception:
+        pass
+      try:
+        self.manager.game_screen.slots.led_shutdown()
       except Exception:
         pass
       try:

@@ -31,6 +31,10 @@ start_with_music = False
 
 
 #configure LED 
+#Keep set to pin 21 to avoid conflicts with audio.
 led_pin = 21
 led_channel = 0
 led_count = 200
+#led_idle_colors = [(255, 50, 0), (0, 200, 15)]   # any number of colors, cycled in order
+led_pulse_seconds = 4.0                          # time for one color to fade up and down
+led_pulse_floor = 0.05                           # dimmest point, 0 = fully dark
