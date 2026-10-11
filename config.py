@@ -24,8 +24,8 @@ win_banner_hold_seconds = 5.0   # how long the win banner stays up
 win_odds = {
     'none':    0.0,
     'double':  0.0,
-    'triple':  0.995,
-    'jackpot': 0.05,
+    'triple':  0.8,
+    'jackpot': 0.2,
 }
 
 # ----------------------------------------------------------------------------
