@@ -2,7 +2,7 @@
 from __future__ import division
 
 import random
-import os, sys, time, math, logging, argparse, glob, csv, atexit, json, bisect, colorsys
+import os, sys, time, math, logging, argparse, glob, csv, atexit, json, bisect, colorsys, re
 
 import config
 
@@ -457,7 +457,7 @@ class JackpotCelebration(Widget):
         self.run_seconds = max(self.duration, duration or 0)
         # Share of launches that are rockets: one icon shooting up with a
         # trail, exploding into a burst up in the air
-        self.rocket_chance = getattr(config, 'fireworks_rocket_chance', 0.35)
+        self.rocket_chance = getattr(config, 'fireworks_rocket_chance', 0.67)
         now = time.time()
         alt = [p for p in (alt_paths or []) if os.path.exists(p)]
         self._fw = {'main': self._texture(icon_path),
@@ -738,6 +738,10 @@ class Slots(Widget):
         self.music_index = 0
         self.music_sound = None
         self.last_activity_time = time.time()
+        # 'order': by the number at the start of each file name (1, 2 ... 12);
+        # 'shuffle': every song once in random order before any repeats.
+        # The P key switches between them.
+        self.music_playback = getattr(config, 'music_playback', 'order')
 
         # Music lights: while background music is audible and idle, the
         # strip follows that track's light map (built ahead of time by
@@ -1493,10 +1497,10 @@ class Slots(Widget):
                                                len(self.bg_cycle_files), name)
 
     def _load_background_music(self):
-        """Scans assets/audio/background/ for music files and builds
-        a shuffled playlist. The playlist is always built regardless of
-        music_enabled, so M can still start it manually even when
-        start_with_music is False in config.py - music_enabled only
+        """Scans assets/audio/background/ for music files and builds the
+        playlist in the current playback mode. The playlist is always built
+        regardless of music_enabled, so M can still start it manually even
+        when start_with_music is False in config.py - music_enabled only
         controls whether it starts on its own after the idle timeout."""
         self.music_playlist = []
         self.music_index = 0
@@ -1506,8 +1510,43 @@ class Slots(Widget):
         files = []
         for ext in ('.wav', '.ogg', '.mp3'):
             files += glob.glob(asset('audio', 'background', '*' + ext))
-        random.shuffle(files)
-        self.music_playlist = files
+        self._all_songs = sorted(files, key=self._song_sort_key)
+        self.music_playlist = self._playlist_round()
+
+    @staticmethod
+    def _song_sort_key(path):
+        """Sorts by the number at the start of the file name (so 2 comes
+        before 10), then by name."""
+        name = os.path.basename(path)
+        m = re.match(r'\s*(\d+)', name)
+        return (int(m.group(1)) if m else float('inf'), name.lower())
+
+    def _playlist_round(self, avoid_first=None):
+        """One pass through every song in the current mode. In shuffle, the
+        round won't start with `avoid_first` (the song that just played)."""
+        songs = list(self._all_songs)
+        if self.music_playback == 'shuffle':
+            random.shuffle(songs)
+            if avoid_first and len(songs) > 1 and songs[0] == avoid_first:
+                songs.append(songs.pop(0))
+        return songs
+
+    def toggle_music_playback(self):
+        """P key: in order <-> shuffle. The current song keeps playing; the
+        new order takes over after it. Returns a notification message."""
+        self.music_playback = 'shuffle' if self.music_playback == 'order' else 'order'
+        if self.music_playlist:
+            current = self.music_playlist[self.music_index]
+            songs = self._playlist_round()
+            if self.music_playback == 'shuffle':
+                songs.remove(current)
+                songs.insert(0, current)        # then every other song once
+            self.music_playlist = songs
+            self.music_index = songs.index(current)
+        return "Music: " + self.music_playback_name()
+
+    def music_playback_name(self):
+        return 'shuffle' if self.music_playback == 'shuffle' else 'in order'
 
     def toggle_music_mute(self):
         """M key. Returns a short description of the result for the
@@ -1531,13 +1570,13 @@ class Slots(Widget):
         return "Music ON - " + self.current_track_name()
 
     def current_track_name(self):
-        """Readable name of the current track: "4_Thriller.mp3" -> "Thriller"."""
+        """Readable name of the current track, without its number:
+        "4 - Thriller - Michael Jackson.mp3" -> "Thriller - Michael Jackson",
+        "4_Thriller.mp3" -> "Thriller"."""
         if not self.music_playlist:
             return ""
         name = os.path.splitext(os.path.basename(self.music_playlist[self.music_index]))[0]
-        prefix, _, rest = name.partition('_')
-        if prefix.isdigit() and rest:
-            name = rest
+        name = re.sub(r'^\s*\d+\s*[-_.]*\s*', '', name) or name
         return name.replace('_', ' ')
 
     def start_music_now(self):
@@ -1608,7 +1647,12 @@ class Slots(Widget):
             return None
 
     def _advance_music_track(self):
-        self.music_index = (self.music_index + 1) % len(self.music_playlist)
+        self.music_index += 1
+        if self.music_index >= len(self.music_playlist):
+            # End of the round: start again (a fresh shuffle in shuffle mode)
+            last = self.music_playlist[-1]
+            self.music_playlist = self._playlist_round(avoid_first=last)
+            self.music_index = 0
         self._start_music_track()
 
     def _jackpot_sound_running(self):
@@ -2020,6 +2064,7 @@ class GameScreen(Screen):
         ('Space', 'Spin (same as the big button)'),
         ('M',     'Music on / mute'),
         ('S',     'Skip to the next song'),
+        ('P',     'Music: in order / shuffle'),
         ('B',     'Next background picture'),
         ('L',     'Lights: follow the music / normal loop'),
         ('K',     'Music light style: meter / party / halloween party / ...'),
@@ -2039,6 +2084,8 @@ class GameScreen(Screen):
             self.show_status(self.slots.toggle_music_mute())
         elif key == "s":
             self.show_status(self.slots.skip_music_track())
+        elif key == "p":
+            self.show_status(self.slots.toggle_music_playback())
         elif key == "b":
             self.show_status(self.slots.cycle_background())
         elif key == "l":
@@ -2069,6 +2116,7 @@ class GameScreen(Screen):
             "",
             "[b]Right now[/b]",
             "Music:          " + music,
+            "Playback:       " + slots.music_playback_name(),
             "Music lights:   " + ("ON" if slots.led_music_lights else "OFF (normal loop)"),
             "Light style:    " + slots.music_style_name(),
             "Light timing:   {:+.2f}s   (copy into config.py to keep)".format(slots.led_music_offset),

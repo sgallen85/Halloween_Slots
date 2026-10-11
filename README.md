@@ -117,6 +117,7 @@ and light settings.
 | Space | Spin (same as the button) |
 | M | Music on / mute |
 | S | Skip to the next song |
+| P | Music: in order / shuffle |
 | B | Next background picture |
 | L | LEDs: follow the music / normal loop |
 | K | Music light style: meter / party / halloween party / ripples / pulse |
