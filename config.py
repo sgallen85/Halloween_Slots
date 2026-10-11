@@ -23,6 +23,7 @@ win_volume = 1.0                # win/jackpot sounds, 0-1 (1 = the file's full l
 spin_sounds_volume = 0.8        # spin and reel-stop sounds, 0-1; lower = wins stand out more
 #music_volume = 0.8             # background music, 0-1 (default: same as spin_sounds_volume)
 # The jackpot sound skips win_sound_delay and starts as soon as the spin sound ends.
+jackpot_animation = 'fireworks'   # 'fireworks' (pumpkins bursting from the reels) or 'rain' (icons raining down)
 
 # Chance of each spin result (should add up to 1.0).
 # Normal odds:  {'none': 0.43, 'double': 0.30, 'triple': 0.25, 'jackpot': 0.02}

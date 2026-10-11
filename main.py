@@ -414,6 +414,93 @@ class JackpotCelebration(Widget):
             surviving.append(body)
         self._bodies = surviving
 
+    # Fireworks (the jackpot): pumpkins bursting out of the reel pumpkins
+    FW_GRAVITY = -520            # px/s^2 - bends each burst into arcs
+    FW_SPEED = (420, 1050)       # launch speed range, px/s
+    FW_LIFE = (1.3, 2.0)         # seconds each pumpkin flies before fading out
+    FW_PER_BURST = (9, 14)       # pumpkins per burst
+    FW_GAP = (0.3, 0.85)         # seconds between bursts
+    FW_SCALE = (0.45, 0.95)      # pumpkin size vs. the reel icons
+
+    def start_fireworks(self, icon_path, origins, size, duration=None):
+        """Fireworks: every pumpkin on the payline bursts at once, then
+        they take turns firing bursts of pumpkins in all directions at
+        random moments until shortly before `duration` is up, so the last
+        burst fades out with the music."""
+        self.stop()
+        if not origins or not os.path.exists(icon_path):
+            return
+        texture = self._textures.get(icon_path)
+        if texture is None:
+            texture = self._textures[icon_path] = Image(icon_path).texture
+        self.run_seconds = max(self.duration, duration or 0)
+        now = time.time()
+        self._fw = {'texture': texture, 'origins': origins, 'size': size,
+                    'next': now + random.uniform(*self.FW_GAP),
+                    'last_launch': now + self.run_seconds - self.FW_LIFE[1]}
+        self._sparks = []
+        self.opacity = 1
+        for origin in origins:                      # the opening volley
+            self._fw_burst(origin, now, big=True)
+        self._update_ev = Clock.schedule_interval(self._fw_update, 0)
+        self._stop_ev = Clock.schedule_once(self.stop, self.run_seconds)
+
+    def _fw_add(self, x, y, vx, vy, scale, life, now, gravity=True):
+        fw = self._fw
+        s = fw['size'] * scale
+        group = InstructionGroup()
+        color = Color(1, 1, 1, 1)
+        rect = Rectangle(texture=fw['texture'], pos=(x - s / 2, y - s / 2), size=(s, s))
+        group.add(color)
+        group.add(rect)
+        self.canvas.add(group)
+        self._sparks.append([group, color, rect, x, y, vx, vy, now, life, s, gravity])
+
+    def _fw_burst(self, origin, now, big=False):
+        ox, oy = origin
+        # the "pop": a pumpkin swelling up and fading at the launch point
+        self._fw_add(ox, oy, 0, 0, 1.0, 0.35, now, gravity=False)
+        self._sparks[-1].append('pop')
+        count = random.randint(*self.FW_PER_BURST) + (4 if big else 0)
+        spin = random.uniform(0, 2 * math.pi)
+        for i in range(count):
+            angle = spin + 2 * math.pi * i / count + random.uniform(-0.15, 0.15)
+            speed = random.uniform(*self.FW_SPEED) * (1.15 if big else 1.0)
+            self._fw_add(ox, oy, math.cos(angle) * speed, math.sin(angle) * speed,
+                         random.uniform(*self.FW_SCALE), random.uniform(*self.FW_LIFE), now)
+
+    def _fw_update(self, dt):
+        fw = self._fw
+        now = time.time()
+        if fw['next'] <= now < fw['last_launch']:
+            self._fw_burst(random.choice(fw['origins']), now)
+            if random.random() < 0.2:                   # now and then, two at once
+                self._fw_burst(random.choice(fw['origins']), now)
+            fw['next'] = now + random.uniform(*self.FW_GAP)
+        drag = 0.6 ** dt                                # air resistance
+        alive = []
+        for spark in self._sparks:
+            group, color, rect, x, y, vx, vy, born, life, s0 = spark[:10]
+            age = (now - born) / life
+            if age >= 1.0:
+                self.canvas.remove(group)
+                continue
+            if len(spark) > 11:                         # the pop at the launch point
+                s = s0 * (1.0 + 0.9 * age)
+                color.a = 1.0 - age
+            else:
+                vx *= drag
+                vy = vy * drag + self.FW_GRAVITY * dt
+                x += vx * dt
+                y += vy * dt
+                s = s0 * (1.0 - 0.45 * age)
+                color.a = 1.0 - age * age
+                spark[3], spark[4], spark[5], spark[6] = x, y, vx, vy
+            rect.pos = (x - s / 2, y - s / 2)
+            rect.size = (s, s)
+            alive.append(spark)
+        self._sparks = alive
+
     def stop(self, *args):
         if self._update_ev:
             self._update_ev.cancel()
@@ -423,6 +510,7 @@ class JackpotCelebration(Widget):
             self._stop_ev = None
         self.canvas.clear()
         self._bodies = []
+        self._sparks = []
         self.opacity = 0
 
 class Slots(Widget):
@@ -1563,7 +1651,18 @@ class Slots(Widget):
         return self.size[1] / (Strip.WINDOW_FRACTION * Strip.WINDOW_REFERENCE_N)
 
     def start_jackpot_celebration(self, seconds=0.0):
+        """The jackpot animation, lasting `seconds` (its song's length).
+        config.jackpot_animation picks 'fireworks' (pumpkins bursting out
+        of the three reel pumpkins, the default) or 'rain' (every icon
+        raining down)."""
         if self.game_screen is None:
+            return
+        if getattr(config, 'jackpot_animation', 'fireworks') != 'rain':
+            pumpkin = asset("images", "icons", symbol_name(self.pumpkin_symbol) + ".png")
+            payline_y = self.size[1] / 2
+            origins = [(strip.pos[0] + strip.size[0] / 2, payline_y) for strip in self.strips]
+            self.game_screen.win_celebration.start_fireworks(
+                pumpkin, origins, self.reel_icon_pixel_size(), duration=seconds)
             return
         icon_dir = asset("images", "icons")
         icon_paths = []
