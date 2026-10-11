@@ -353,10 +353,18 @@ class JackpotCelebration(Widget):
         if not icon_paths:
             return
         self.run_seconds = max(self.duration, duration or 0)
-        self._rain_until = time.time() + self.run_seconds - self.RAIN_TAIL
-        self._icon_paths = icon_paths
-        size = icon_size if icon_size is not None else self.icon_size
-        n = count if count is not None else self.icon_count
+        # Only a stretched run (the jackpot) keeps re-dropping icons; a
+        # triple's rain falls once and drifts off, as it always did.
+        self._rain_until = (time.time() + self.run_seconds - self.RAIN_TAIL) if duration else 0.0
+        self._spawn_rain(icon_paths,
+                         icon_size if icon_size is not None else self.icon_size,
+                         count if count is not None else self.icon_count)
+        self.opacity = 1
+        self._update_ev = Clock.schedule_interval(self._update, 0)
+        self._stop_ev = Clock.schedule_once(self.stop, self.run_seconds)
+
+    def _spawn_rain(self, icon_paths, size, n):
+        """Adds `n` icons above the top of the screen, ready to fall."""
         self.icon_size_now = size
         with self.canvas:
             Color(1, 1, 1, 1)
@@ -375,9 +383,6 @@ class JackpotCelebration(Widget):
                 vx = direction * random.uniform(*self.drift_speed_range)
                 rect = Rectangle(texture=texture, pos=(x, y), size=(size, size))
                 self._bodies.append([rect, x, y, vx, 0.0])
-        self.opacity = 1
-        self._update_ev = Clock.schedule_interval(self._update, 0)
-        self._stop_ev = Clock.schedule_once(self.stop, self.run_seconds)
 
     def _update(self, dt):
         size = self.icon_size_now
@@ -422,11 +427,12 @@ class JackpotCelebration(Widget):
     FW_GAP = (0.3, 0.85)         # seconds between bursts
     FW_SCALE = (0.45, 0.95)      # pumpkin size vs. the reel icons
 
-    def start_fireworks(self, icon_path, origins, size, duration=None):
+    def start_fireworks(self, icon_path, origins, size, duration=None, rain_paths=None):
         """Fireworks: every pumpkin on the payline bursts at once, then
         they take turns firing bursts of pumpkins in all directions at
         random moments until shortly before `duration` is up, so the last
-        burst fades out with the music."""
+        burst fades out with the music. With `rain_paths`, those icons
+        also fall once from the top as the fireworks start (no re-drops)."""
         self.stop()
         if not origins or not os.path.exists(icon_path):
             return
@@ -439,6 +445,9 @@ class JackpotCelebration(Widget):
                     'next': now + random.uniform(*self.FW_GAP),
                     'last_launch': now + self.run_seconds - self.FW_LIFE[1]}
         self._sparks = []
+        if rain_paths:
+            self._rain_until = 0.0                  # one drop only
+            self._spawn_rain(rain_paths, size, self.icon_count)
         self.opacity = 1
         for origin in origins:                      # the opening volley
             self._fw_burst(origin, now, big=True)
@@ -470,6 +479,8 @@ class JackpotCelebration(Widget):
                          random.uniform(*self.FW_SCALE), random.uniform(*self.FW_LIFE), now)
 
     def _fw_update(self, dt):
+        if self._bodies:
+            self._update(dt)                            # the falling icons, if any
         fw = self._fw
         now = time.time()
         if fw['next'] <= now < fw['last_launch']:
@@ -1652,17 +1663,26 @@ class Slots(Widget):
 
     def start_jackpot_celebration(self, seconds=0.0):
         """The jackpot animation, lasting `seconds` (its song's length).
-        config.jackpot_animation picks 'fireworks' (pumpkins bursting out
-        of the three reel pumpkins, the default) or 'rain' (every icon
-        raining down)."""
+        config.jackpot_animation picks:
+          'combo'     (default) one drop of every icon except the pumpkin,
+                      with pumpkin fireworks bursting out of the reels
+          'fireworks' just the pumpkin fireworks
+          'rain'      every icon raining down for the whole song"""
         if self.game_screen is None:
             return
-        if getattr(config, 'jackpot_animation', 'fireworks') != 'rain':
-            pumpkin = asset("images", "icons", symbol_name(self.pumpkin_symbol) + ".png")
+        style = getattr(config, 'jackpot_animation', 'combo')
+        if style in ('combo', 'fireworks'):
+            pumpkin_name = symbol_name(self.pumpkin_symbol)
+            pumpkin = asset("images", "icons", pumpkin_name + ".png")
             payline_y = self.size[1] / 2
             origins = [(strip.pos[0] + strip.size[0] / 2, payline_y) for strip in self.strips]
+            rain = None
+            if style == 'combo':
+                rain = [asset("images", "icons", name + ".png")
+                        for name in SYMBOL_NAMES[:self.num_symbols] if name != pumpkin_name]
+                rain = [path for path in rain if os.path.exists(path)]
             self.game_screen.win_celebration.start_fireworks(
-                pumpkin, origins, self.reel_icon_pixel_size(), duration=seconds)
+                pumpkin, origins, self.reel_icon_pixel_size(), duration=seconds, rain_paths=rain)
             return
         icon_dir = asset("images", "icons")
         icon_paths = []
