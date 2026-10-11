@@ -61,7 +61,7 @@ except ImportError as e:
   import nullHardware as Hardware
 
 from collections import Counter
-from kivy.animation import Animation
+from kivy.animation import Animation, AnimationTransition
 
 from kivy.app import App
 from kivy.uix.screenmanager import Screen
@@ -71,7 +71,6 @@ from kivy.core.audio import SoundLoader
 from kivy.lang import Builder
 from kivy.core.image import Image
 from kivy.core.window import Window
-from kivy.uix.image import Image as ImageWidget
 from kivy.uix.widget import Widget
 from kivy.graphics import *
 from kivy.utils import get_color_from_hex
@@ -301,13 +300,19 @@ class Strip(Rectangle):
         return (self.tex_coords[0], self.tex_coords[1])
 
 
-class JackpotCelebration(FloatLayout):
+class JackpotCelebration(Widget):
     """Full-screen overlay of icons falling from above the screen under
     gravity, bouncing softly off the bottom, and drifting off the left/right
     edges to disappear - the classic 'cascade' win-screen effect, built from
     scratch using this game's own icon art. All the physics knobs below can
     be overridden from config.py (see the matching config_* names in
-    __init__) without touching this class."""
+    __init__) without touching this class.
+
+    The icons are drawn as plain textured rectangles on this widget's canvas
+    (one shared texture per icon image) rather than as 50 Image widgets:
+    moving a rectangle is just a number change, where moving a widget sets
+    off property events and layout passes - slow enough on a Pi to make the
+    animation stutter, and creating the widgets froze the start of the win."""
 
     DURATION = 10.0
     ICON_COUNT = 50
@@ -323,7 +328,8 @@ class JackpotCelebration(FloatLayout):
         self.size = (1920, 1080)
         self.pos = (0, 0)
         self.opacity = 0
-        self._bodies = []  # list of [widget, vx, vy]
+        self._bodies = []  # list of [Rectangle, x, y, vx, vy]
+        self._textures = {}  # icon path -> texture, loaded once
         self._update_ev = None
         self._stop_ev = None
 
@@ -341,49 +347,51 @@ class JackpotCelebration(FloatLayout):
             return
         size = icon_size if icon_size is not None else self.icon_size
         n = count if count is not None else self.icon_count
-        for i in range(n):
-            path = random.choice(icon_paths)
-            img = ImageWidget(source=path, size=(size, size),
-                               size_hint=(None, None), allow_stretch=True, keep_ratio=True)
-            # Start above the screen (staggered height = staggered fall
-            # timing) at a random x. Icons spawned on the left half drift
-            # right as they fall, and vice versa, so they cross the screen
-            # rather than drifting randomly.
-            spawn_x = random.uniform(0, 1920 - size)
-            direction = 1 if spawn_x < (1920 - size) / 2 else -1
-            speed = random.uniform(*self.drift_speed_range)
-            vx = direction * speed
-            vy = 0
-            img.pos = (spawn_x, 1080 + random.uniform(*self.spawn_height_range))
-            self.add_widget(img)
-            self._bodies.append([img, vx, vy])
+        self.icon_size_now = size
+        with self.canvas:
+            Color(1, 1, 1, 1)
+            for i in range(n):
+                path = random.choice(icon_paths)
+                texture = self._textures.get(path)
+                if texture is None:
+                    texture = self._textures[path] = Image(path).texture
+                # Start above the screen (staggered height = staggered fall
+                # timing) at a random x. Icons spawned on the left half drift
+                # right as they fall, and vice versa, so they cross the screen
+                # rather than drifting randomly.
+                x = random.uniform(0, 1920 - size)
+                y = 1080 + random.uniform(*self.spawn_height_range)
+                direction = 1 if x < (1920 - size) / 2 else -1
+                vx = direction * random.uniform(*self.drift_speed_range)
+                rect = Rectangle(texture=texture, pos=(x, y), size=(size, size))
+                self._bodies.append([rect, x, y, vx, 0.0])
         self.opacity = 1
         self._update_ev = Clock.schedule_interval(self._update, 0)
         self._stop_ev = Clock.schedule_once(self.stop, self.duration)
 
     def _update(self, dt):
-        size = self.icon_size
+        size = self.icon_size_now
         margin = size + 50  # fully off-screen before we despawn
+        gravity, restitution = self.gravity, self.bottom_restitution
         surviving = []
         for body in self._bodies:
-            img, vx, vy = body
-            vy += self.gravity * dt
-            x, y = img.pos
+            rect, x, y, vx, vy = body
+            vy += gravity * dt
             x += vx * dt
             y += vy * dt
 
             if y <= 0:
                 y = 0
-                vy = abs(vy) * self.bottom_restitution
+                vy = abs(vy) * restitution
 
             # No side walls - icons that drift past either edge just keep
             # going and get removed once they're fully out of view.
             if x + size < -margin or x > 1920 + margin:
-                self.remove_widget(img)
+                self.canvas.remove(rect)
                 continue
 
-            img.pos = (x, y)
-            body[1], body[2] = vx, vy
+            rect.pos = (x, y)
+            body[1], body[2], body[4] = x, y, vy
             surviving.append(body)
         self._bodies = surviving
 
@@ -394,7 +402,7 @@ class JackpotCelebration(FloatLayout):
         if self._stop_ev:
             self._stop_ev.cancel()
             self._stop_ev = None
-        self.clear_widgets()
+        self.canvas.clear()
         self._bodies = []
         self.opacity = 0
 
@@ -1590,7 +1598,7 @@ class Slots(Widget):
 
         label.text = text
         label.color = label_color
-        label.font_size = banner.height * 0.08  # small starting point for the pop-in animation
+        label.font_size = banner.height * style['size_frac']   # final size, rendered once
         banner.opacity = 0
 
         banner_anim = (Animation(opacity=1, duration=0.2)
@@ -1598,10 +1606,39 @@ class Slots(Widget):
                        + Animation(opacity=0, duration=0.4))
         banner_anim.start(banner)
 
-        target_size = banner.height * style['size_frac']
-        label_anim = Animation(font_size=target_size, duration=0.25, t='out_back')
-        label_anim.start(label)
+        self._pop_in(label)
         return 0.2 + hold + 0.4
+
+    POP_SECONDS = 0.25
+    POP_START = 0.3   # starting size, as a fraction of the final size
+
+    def _pop_in(self, label):
+        """The banner text's springy pop-in. Zooms the already-rendered
+        text up to full size (a cheap drawing transform) instead of
+        animating its font size, which re-renders the big text every frame
+        and made the start of each win stutter on the Pi."""
+        if not hasattr(label, '_pop_scale'):
+            with label.canvas.before:
+                PushMatrix()
+                label._pop_scale = Scale(1, 1, 1)
+            with label.canvas.after:
+                PopMatrix()
+            label._pop_event = None
+        if label._pop_event:
+            label._pop_event.cancel()
+        started = time.time()
+        ease = AnimationTransition.out_back
+
+        def step(dt):
+            p = min(1.0, (time.time() - started) / self.POP_SECONDS)
+            k = self.POP_START + (1 - self.POP_START) * ease(p)
+            label._pop_scale.origin = label.center
+            label._pop_scale.x = label._pop_scale.y = k
+            if p >= 1.0:
+                label._pop_event = None
+                return False
+        step(0)
+        label._pop_event = Clock.schedule_interval(step, 0)
 
     def _celebration_seconds(self):
         """How long the falling-icons celebration will run, or 0 if none
