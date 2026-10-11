@@ -62,7 +62,7 @@ led_spin_interval = 0.2
 led_music_lights = True         # False = start with the normal idle loop (L key toggles)
 led_music_offset = 0.12         # seconds; raise if lights run early, lower if late ([ and ] adjust live)
 led_music_beats_per_color = 16  # beats before the base color fades to the next one
-led_music_style = 'meter'       # 'meter' bounces out from the middle, 'ripples', or 'pulse' (whole strip); K cycles
+led_music_style = 'meter'       # 'meter' bounces out from the middle, 'party' full show, 'ripples', or 'pulse'; K cycles
 led_music_meter_dim = 0.20      # 'meter': brightness between beats (0-1); flares to full on each beat. 1 = no pulsing
 led_music_accent_threshold = 65 # 'ripples' only: strong beats (0-100) ripple in the next color
 #led_music_colors = [(255, 50, 0), (0, 200, 15), (140, 0, 255)]

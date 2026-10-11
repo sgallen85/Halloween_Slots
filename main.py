@@ -2,7 +2,7 @@
 from __future__ import division
 
 import random
-import os, sys, time, math, logging, argparse, glob, csv, atexit, json, bisect
+import os, sys, time, math, logging, argparse, glob, csv, atexit, json, bisect, colorsys
 
 import config
 
@@ -540,6 +540,9 @@ class Slots(Widget):
         #   led_music_beats_per_color - beats before moving to the next color
         #   led_music_style  - 'meter'   (default) a level meter bouncing out
         #                                  from the middle with peak dots
+        #                      'party'   a full light show that follows the
+        #                                  song's harmony, sections, bars,
+        #                                  cymbals and drops
         #                      'ripples' each beat ripples out from the middle
         #                      'pulse'   the whole strip flashes on each beat
         #   led_music_meter_dim - ('meter' only) bar brightness between beats,
@@ -559,6 +562,7 @@ class Slots(Widget):
         self.led_music_style = getattr(config, 'led_music_style', 'meter')
         self.led_music_meter_dim = getattr(config, 'led_music_meter_dim', 0.45)
         self._meter = None            # level meter state, reset per track
+        self._party = None            # party show state, reset per track
         self.led_music_accent_threshold = getattr(config, 'led_music_accent_threshold', 95)
         self.led_music_offset = getattr(config, 'led_music_offset', 0.04)
         self._music_started_at = 0.0
@@ -744,7 +748,10 @@ class Slots(Widget):
             base = lerp(colors[(phrase - 1) % len(colors)], base, mix)
             accent = lerp(colors[phrase % len(colors)], accent, mix)
 
-        if self.led_music_style == 'meter':
+        if self.led_music_style == 'party' and 'intensity' in light_map:
+            self._led_party_frame(t, e, k)
+            return
+        if self.led_music_style in ('meter', 'party'):   # party falls back to meter on old maps
             self._led_meter_frame(t, e, k, base, accent)
             return
 
@@ -803,6 +810,37 @@ class Slots(Widget):
         the accent color at the tips. Brightness pulses with the beat on
         top of the movement (see led_music_meter_dim)."""
         n = self.led_count
+        level, peak, flash = self._meter_step(t, e, k)
+
+        # Brightness pulses with the music too: the bar glows at a medium
+        # level between beats (a bit brighter with more bass) and flares on
+        # each beat; the strip outside the bar flickers with the beat.
+        bar_bright = min(1.0, self.led_music_meter_dim + 0.15 * e
+                         + (1.0 - self.led_music_meter_dim) * flash)
+        outside_bright = 0.03 + 0.22 * flash
+        half = n / 2.0
+        center = (n - 1) / 2.0
+        bar = level * half
+        peak = peak * half
+        pixels = []
+        for i in range(n):
+            d = abs(i - center) + 0.5          # distance from the middle, in LEDs
+            frac = min(1.0, d / half)
+            # base color in the middle, blending to the accent at the tips
+            mix = frac ** 1.5
+            color = [b + (a - b) * mix for b, a in zip(base, accent)]
+            inside = max(0.0, min(1.0, bar - d + 1.0))   # soft edge on the bar
+            level = outside_bright + (bar_bright - outside_bright) * inside
+            if abs(d - peak) < 1.0 and peak > 1.0:       # peak dot
+                level = 1.0
+                color = [min(255, c * 0.6 + 100) for c in accent]  # brighter, whiter
+            pixels.append((int(color[0] * level), int(color[1] * level), int(color[2] * level)))
+        ledStrip.set_pixels(pixels)
+
+    def _meter_step(self, t, e, k):
+        """Advances the level meter's bounce one frame. Returns (level,
+        peak, flash): bar and peak-dot reach (0-1 of half the strip) and the
+        current beat's brightness flare (0-1)."""
         now = time.time()
         m = self._meter
         if m is None:
@@ -836,44 +874,180 @@ class Slots(Widget):
             m['peak_vel'] += self.LED_METER_PEAK_GRAVITY * dt
             m['peak'] = max(m['level'], m['peak'] - m['peak_vel'] * dt)
 
-        # Brightness pulses with the music too: the bar glows at a medium
-        # level between beats (a bit brighter with more bass) and flares on
-        # each beat; the strip outside the bar flickers with the beat.
-        bar_bright = min(1.0, self.led_music_meter_dim + 0.15 * e
-                         + (1.0 - self.led_music_meter_dim) * flash)
-        outside_bright = 0.03 + 0.22 * flash
-        half = n / 2.0
+        return m['level'], m['peak'], flash
+
+    # Party show tuning
+    PARTY_HUE_RATE = 0.6          # how quickly colors follow the harmony (per second)
+    PARTY_SEGMENT = 6             # LEDs per color block in the chorus chase
+    PARTY_WHITE = 210             # cap on white flashes (full white on every LED draws a lot of power)
+
+    def _led_party_frame(self, t, e, k):
+        """The party show. Reads the whole light map, not just the beat:
+          color      follows the song's harmony (see make_light_maps.py) -
+                     the main color, plus a contrasting second color
+          intensity  blends three moods as the song builds and relaxes:
+                       calm   slow waves of color drifting across the strip
+                       groove the bouncing meter
+                       peak   blocks of both colors chasing along the strip,
+                              one step per beat, changing direction each bar,
+                              with a white flash on strong bar-start beats
+          bars       a flash at both ends of the strip on every bar
+          treble     white sparkles on hi-hats and cymbals
+          drops      a white burst from the middle, then colored confetti
+        """
+        light_map = self._music_map
+        n = self.led_count
+        now = time.time()
+        p = self._party
+        if p is None:
+            p = self._party = {'hue': None, 'last': now, 'sparks': []}
+        dt = min(0.1, max(0.0, now - p['last']))
+        p['last'] = now
+
+        # --- read the map at time t
+        fps, slow_fps = light_map['fps'], light_map['slow_fps']
+        idx = int(t * fps)
+        treble = light_map['treble'][idx] / 100.0 if 0 <= idx < len(light_map['treble']) else 0.0
+        sidx = min(max(0, int(t * slow_fps)), len(light_map['intensity']) - 1)
+        intensity = light_map['intensity'][sidx] / 100.0
+        target_hue = light_map['hue'][sidx]
+
+        # Ease toward the harmony's color along the shorter way round the wheel
+        if p['hue'] is None:
+            p['hue'] = target_hue
+        diff = (target_hue - p['hue'] + 540) % 360 - 180
+        p['hue'] = (p['hue'] + diff * min(1.0, self.PARTY_HUE_RATE * dt)) % 360
+        hue = p['hue'] / 360.0
+
+        def hsv(h, v, sat=1.0):
+            r, g, b = colorsys.hsv_to_rgb(h % 1.0, sat, max(0.0, min(1.0, v)))
+            return (r * 255, g * 255, b * 255)
+
+        main_h, second_h = hue, hue + 0.42   # a contrasting, not quite opposite, color
+
+        # --- beat, bar and drop timing
+        beat_period = 60.0 / max(40.0, light_map.get('bpm', 120))
+        age, strength, downbeat, bar = 99.0, 0, False, 0
+        if k >= 0:
+            beat_time, strength = light_map['beats'][k]
+            age = t - beat_time
+            beat_in_bar = (k - light_map.get('bar_phase', 0)) % 4
+            downbeat = beat_in_bar == 0
+            bar = (k - light_map.get('bar_phase', 0)) // 4
+        flash = (0.3 + 0.7 * strength / 100.0) * math.exp(-age / 0.2)
+        drops = light_map.get('drops', [])
+        di = bisect.bisect_right(drops, t) - 1
+        drop_age = t - drops[di] if di >= 0 else 99.0
+
+        # --- mood weights: calm -> groove -> peak, blended so nothing snaps
+        def ramp(x, a, b):
+            x = max(0.0, min(1.0, (x - a) / (b - a)))
+            return x * x * (3 - 2 * x)
+        w_peak = ramp(intensity, 0.62, 0.8)
+        w_calm = 1.0 - ramp(intensity, 0.22, 0.4)
+        w_groove = max(0.0, 1.0 - w_peak - w_calm)
+
+        meter_level, meter_peak, _ = self._meter_step(t, e, k)   # keep the meter bouncing
         center = (n - 1) / 2.0
-        bar = m['level'] * half
-        peak = m['peak'] * half
+        half = n / 2.0
+
+        # Chorus chase: moves one block per beat (snappy ease), reverses each bar
+        step = 0.0
+        if k >= 0:
+            step = k + min(1.0, age / (beat_period * 0.35)) ** 0.5
+        chase_pos = step * self.PARTY_SEGMENT
+        chase_dir = 1 if bar % 2 == 0 else -1
+        chase_white = 0.0
+        if downbeat and strength >= 60:
+            chase_white = 0.7 * math.exp(-age / 0.07)
+
         pixels = []
         for i in range(n):
-            d = abs(i - center) + 0.5          # distance from the middle, in LEDs
-            frac = min(1.0, d / half)
-            # base color in the middle, blending to the accent at the tips
-            mix = frac ** 1.5
-            color = [b + (a - b) * mix for b, a in zip(base, accent)]
-            inside = max(0.0, min(1.0, bar - d + 1.0))   # soft edge on the bar
-            level = outside_bright + (bar_bright - outside_bright) * inside
-            if abs(d - peak) < 1.0 and peak > 1.0:       # peak dot
-                level = 1.0
-                color = [min(255, c * 0.6 + 100) for c in accent]  # brighter, whiter
-            pixels.append((int(color[0] * level), int(color[1] * level), int(color[2] * level)))
-        ledStrip.set_pixels(pixels)
+            d = abs(i - center) + 0.5
+            r = g = b = 0.0
 
-    LED_MUSIC_STYLES = ['meter', 'ripples', 'pulse']
-    LED_MUSIC_STYLE_NAMES = {'meter': 'Meter', 'ripples': 'Ripples', 'pulse': 'Pulse'}
+            if w_calm > 0.01:    # slow drifting waves, swelling with the bass
+                w1 = 0.5 + 0.5 * math.sin(i * 0.11 - t * 1.3)
+                w2 = 0.5 + 0.5 * math.sin(i * 0.07 + t * 0.7)
+                c = hsv(main_h + 0.08 * w2, 0.08 + 0.3 * w1 * (0.5 + e) + 0.25 * flash)
+                r += c[0] * w_calm; g += c[1] * w_calm; b += c[2] * w_calm
+
+            if w_groove > 0.01:  # the bouncing meter, main color in the middle
+                inside = max(0.0, min(1.0, meter_level * half - d + 1.0))
+                mix = min(1.0, d / half) ** 1.5
+                v = 0.04 + (0.35 + 0.65 * flash) * inside
+                if abs(d - meter_peak * half) < 1.0 and meter_peak > 0.05:
+                    v = 1.0
+                c = hsv(main_h + (second_h - main_h) * mix, v)
+                r += c[0] * w_groove; g += c[1] * w_groove; b += c[2] * w_groove
+
+            if w_peak > 0.01:    # color blocks chasing to the beat
+                seg = int((i * chase_dir + chase_pos) // self.PARTY_SEGMENT)
+                c = hsv(main_h if seg % 2 == 0 else second_h, 0.35 + 0.35 * e + 0.3 * flash)
+                wv = chase_white * self.PARTY_WHITE
+                r += (c[0] + wv) * w_peak; g += (c[1] + wv) * w_peak; b += (c[2] + wv) * w_peak
+
+            pixels.append([r, g, b])
+
+        # Bar starts: both ends flash the second color, fading toward the middle
+        if downbeat and age < 0.35:
+            amt = math.exp(-age / 0.12)
+            c = hsv(second_h, 1.0)
+            reach = n * 0.18
+            for i in range(n):
+                edge = min(i, n - 1 - i)
+                if edge < reach:
+                    a = amt * (1 - edge / reach) ** 2
+                    px = pixels[i]
+                    px[0] += c[0] * a; px[1] += c[1] * a; px[2] += c[2] * a
+
+        # Drops: a white burst racing out from the middle, then confetti
+        if drop_age < 0.6:
+            radius = drop_age / 0.35 * half
+            fill = 0.5 * (1 - drop_age / 0.6)
+            for i in range(n):
+                d = abs(i - center)
+                ring = max(0.0, 1 - abs(d - radius) / 5.0) * (1 - drop_age / 0.6)
+                wv = min(1.0, ring + fill) * self.PARTY_WHITE
+                px = pixels[i]
+                px[0] += wv; px[1] += wv; px[2] += wv
+
+        # Sparkles: hi-hats and cymbals (white), confetti after a drop (any color)
+        sparks = p['sparks']
+        rate = 50.0 * treble ** 2 * (0.4 + intensity)          # per second
+        confetti = 0.0
+        if 0.4 < drop_age < 4.0:
+            confetti = 120.0 * (1 - (drop_age - 0.4) / 3.6)
+        for want, kind in ((rate * dt, 'white'), (confetti * dt, 'confetti')):
+            count = int(want) + (1 if random.random() < want - int(want) else 0)
+            for _ in range(count):
+                color = (self.PARTY_WHITE,) * 3 if kind == 'white' else hsv(random.random(), 1.0)
+                sparks.append([random.randrange(n), now, color, 0.12 if kind == 'white' else 0.3])
+        alive = []
+        for pos, born, color, life in sparks:
+            a = 1 - (now - born) / life
+            if a > 0:
+                px = pixels[pos]
+                px[0] = max(px[0], color[0] * a); px[1] = max(px[1], color[1] * a); px[2] = max(px[2], color[2] * a)
+                alive.append([pos, born, color, life])
+        p['sparks'] = alive[-200:]
+
+        ledStrip.set_pixels([(min(255, int(r)), min(255, int(g)), min(255, int(b))) for r, g, b in pixels])
+
+    LED_MUSIC_STYLES = ['meter', 'party', 'ripples', 'pulse']
+    LED_MUSIC_STYLE_NAMES = {'meter': 'Meter', 'party': 'Party', 'ripples': 'Ripples', 'pulse': 'Pulse'}
 
     def music_style_name(self):
         return self.LED_MUSIC_STYLE_NAMES.get(self.led_music_style, self.led_music_style)
 
     def cycle_music_style(self):
-        """K key: meter -> ripples -> pulse -> meter. Returns a short
+        """K key: meter -> party -> ripples -> pulse -> meter. Returns a short
         description for the notification."""
         styles = self.LED_MUSIC_STYLES
         i = styles.index(self.led_music_style) if self.led_music_style in styles else -1
         self.led_music_style = styles[(i + 1) % len(styles)]
         self._meter = None   # start the meter fresh rather than mid-bounce
+        self._party = None
         message = "Music light style: " + self.music_style_name()
         if not self.led_music_lights:
             message += " (music lights are OFF - press L)"
@@ -1170,6 +1344,7 @@ class Slots(Widget):
         # (muted) through spins, so this stays in step with it.
         self._music_started_at = time.time()
         self._meter = None
+        self._party = None
 
     def _load_light_map(self, track_path):
         """Loads `<track>.lights.json` from make_light_maps.py, or returns
@@ -1502,7 +1677,7 @@ class GameScreen(Screen):
         ('S',     'Skip to the next song'),
         ('B',     'Next background picture'),
         ('L',     'Lights: follow the music / normal loop'),
-        ('K',     'Music light style: meter / ripples / pulse'),
+        ('K',     'Music light style: meter / party / ripples / pulse'),
         ('[  ]',  'Music lights earlier / later'),
         ('H',     'Show / hide this help'),
         ('Esc',   'Quit the game'),
