@@ -33,8 +33,56 @@ LED_BRIGHTNESS = getattr(config, 'led_brightness', 128)
 print("LED strip test - {} pixels on GPIO{}, channel {}, brightness {}".format(
     LED_COUNT, LED_PIN, LED_CHANNEL, LED_BRIGHTNESS))
 
+
+
+def check_spi_setup():
+    """GPIO10 drives the strip through the SPI port. Checks each piece
+    scripts/enable_spi_leds.sh sets up and says which one is missing."""
+    import glob, grp, pwd
+    ok = True
+    print("\nChecking the SPI setup for GPIO10:")
+    dev = '/dev/spidev0.0'
+    if not os.path.exists(dev):
+        print("  X  {} doesn't exist - SPI is off. Run scripts/enable_spi_leds.sh,".format(dev))
+        print("     then REBOOT (SPI only turns on at boot).")
+        ok = False
+    elif not os.access(dev, os.R_OK | os.W_OK):
+        user = pwd.getpwuid(os.getuid()).pw_name
+        listed = user in grp.getgrnam('spi').gr_mem if 'spi' in [g.gr_name for g in grp.getgrall()] else False
+        print("  X  No permission to use {}.".format(dev))
+        if listed:
+            print("     You were added to the 'spi' group but it isn't active yet - log out")
+            print("     and back in, or reboot.")
+        else:
+            print("     Run scripts/enable_spi_leds.sh (adds you to the 'spi' group), then reboot.")
+        ok = False
+    else:
+        print("  ok {} is there and usable".format(dev))
+    for cfg in ('/boot/firmware/config.txt', '/boot/config.txt'):
+        if os.path.exists(cfg):
+            text = open(cfg).read()
+            model = open('/proc/device-tree/model').read() if os.path.exists('/proc/device-tree/model') else ''
+            if 'Raspberry Pi 4' in model and 'core_freq_min=500' not in text:
+                print("  !  {} has no core_freq_min=500 - on a Pi 4 the LED data can".format(cfg))
+                print("     come out garbled or not at all. Run scripts/enable_spi_leds.sh and reboot.")
+            else:
+                print("  ok core clock setting looks right for this Pi")
+            break
+    print()
+    return ok
+
+
+if LED_PIN == 10 and not check_spi_setup():
+    raise SystemExit(1)
+
 strip = PixelStrip(LED_COUNT, LED_PIN, 800000, 10, False, LED_BRIGHTNESS, LED_CHANNEL)
-strip.begin()
+try:
+    strip.begin()
+except RuntimeError as e:
+    print("The LED library couldn't start the strip: {}".format(e))
+    if LED_PIN != 10:
+        print("On GPIO{} this needs sudo:  sudo python3 tools/led_test.py".format(LED_PIN))
+    raise SystemExit(1)
 
 
 def set_all(r, g, b):
