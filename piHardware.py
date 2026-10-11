@@ -19,11 +19,16 @@ def setup():
 
 class ledStrip:
     """
-    Controls a WS2812B LED strip via rpi_ws281x. Defaults to GPIO19 (PWM
-    channel 1) rather than GPIO18 - GPIO18 doubles as the Pi's onboard
-    3.5mm audio PWM pin, and the two conflict (confirmed: booting with the
-    strip on GPIO18 lit the first several LEDs solid white from the audio
-    driver's own init, independent of any LED code).
+    Controls a WS2812B LED strip via rpi_ws281x. Which pin the data wire is
+    on decides how the library drives it:
+      GPIO10 (SPI)  - through the SPI port (/dev/spidev0.0). Works as a
+                      normal user (in the 'spi' group) - no sudo. Needs SPI
+                      turned on; see scripts/enable_spi_leds.sh.
+      GPIO21 (PCM)  - through the PCM block via /dev/mem, which needs root
+                      (sudo).
+    Avoid GPIO18/19 (PWM): GPIO18 doubles as the Pi's 3.5mm audio PWM pin,
+    and the two conflict (booting with the strip there lit the first LEDs
+    solid white from the audio driver's own init).
 
     All methods here are instantaneous/non-blocking - any flashing or timed
     animation lives in main.py via Kivy's Clock, not here, so LED effects
@@ -32,8 +37,8 @@ class ledStrip:
     Config overrides (all optional, in config.py):
       led_enabled     - set False to disable entirely without uninstalling anything
       led_count       - number of LEDs on the strip (default 60)
-      led_pin         - GPIO pin number, BCM numbering (default 19)
-      led_channel     - PWM channel matching the pin: 0 for GPIO18, 1 for GPIO19 (default 1)
+      led_pin         - GPIO pin number, BCM numbering: 10 (SPI) or 21 (PCM)
+      led_channel     - 0 for GPIO10 and GPIO21
       led_brightness  - 0-255 (default 128)
     """
     def __init__(self):
@@ -49,8 +54,8 @@ class ledStrip:
             return
 
         led_count = getattr(config, 'led_count', 60)
-        led_pin = getattr(config, 'led_pin', 19)
-        led_channel = getattr(config, 'led_channel', 1)
+        led_pin = getattr(config, 'led_pin', 21)
+        led_channel = getattr(config, 'led_channel', 0)
         led_brightness = getattr(config, 'led_brightness', 128)
 
         try:
@@ -58,8 +63,13 @@ class ledStrip:
                                      led_brightness, led_channel)
             self.strip.begin()
         except Exception as e:
-            logging.warning('LED strip failed to initialize (often a permissions issue - '
-                             'this needs to run as root): {}'.format(e))
+            if led_pin == 10:
+                hint = ('on GPIO10 (SPI) this usually means SPI is off or your user '
+                        'isn\'t in the spi group - run scripts/enable_spi_leds.sh')
+            else:
+                hint = ('on GPIO{} this needs root - start with sudo (launch.sh does), '
+                        'or move the strip to GPIO10 to run without it'.format(led_pin))
+            logging.warning('LED strip failed to initialize ({}): {}'.format(hint, e))
             self.strip = None
 
     def set_all(self, r, g, b):

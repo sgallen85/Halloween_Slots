@@ -37,7 +37,7 @@ start_with_music = False        # False = music only starts when you press M
 # ----------------------------------------------------------------------------
 # LED strip
 # ----------------------------------------------------------------------------
-led_pin = 21                    # keep on GPIO21 (channel 0) - other pins clash with the audio
+led_pin = 21                    # 10 = SPI, runs without sudo (see README); 21 = PCM, needs sudo. Not 18/19 (audio clash)
 led_channel = 0
 led_count = 100
 led_brightness = 100            # overall brightness 0-255; lower if the strip flickers

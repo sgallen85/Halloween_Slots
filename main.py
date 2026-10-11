@@ -255,7 +255,7 @@ TIER_STYLE = {
     'spin':        {'color': (1, 1, 1, 1),      'size_frac': 0.20, 'hold': 0.3, 'text': '{} treats'},
     'double':      {'color': (213/255, 135/255, 49/255, 1),  'size_frac': 0.24, 'hold': 0.7, 'text': 'DOUBLE!\n{} treats'},
     '3 of a kind': {'color': (1, 0.55, 0.1, 1),  'size_frac': 0.28, 'hold': 1.0, 'text': '3 OF A KIND!\n{} treats'},
-    'jackpot':     {'color': (1, 0.25, 0.05, 1), 'size_frac': 0.34, 'hold': 2.0, 'text': 'JACKPOT!!!\n{} treats'},
+    'jackpot':     {'color': (1, 0.25, 0.05, 1), 'size_frac': 0.34, 'hold': 2.0, 'text': 'JACKPOT!!!'},
 }
 
 # Text color used specifically for the "PUMPKIN BONUS!" banner (1 or 2

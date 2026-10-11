@@ -1,10 +1,11 @@
 #!/usr/bin/env python3
 """
 Standalone LED strip test - checks wiring/library BEFORE trusting it wired
-into the full game. Needs sudo, same as the real game will once LEDs are
-enabled, since rpi_ws281x needs raw access to the PWM/DMA hardware:
+into the full game. With the strip on GPIO10 (SPI) it runs as a normal user;
+on GPIO21 it needs sudo, same as the game:
 
-    sudo python3 tools/led_test.py
+    python3 tools/led_test.py          # GPIO10
+    sudo python3 tools/led_test.py     # GPIO21
 
 Reads the same led_count / led_pin / led_channel / led_brightness settings
 from config.py that the real game uses, so a successful run here means the
@@ -25,8 +26,8 @@ except ImportError:
     raise SystemExit(1)
 
 LED_COUNT = getattr(config, 'led_count', 60)
-LED_PIN = getattr(config, 'led_pin', 19)
-LED_CHANNEL = getattr(config, 'led_channel', 1)
+LED_PIN = getattr(config, 'led_pin', 21)
+LED_CHANNEL = getattr(config, 'led_channel', 0)
 LED_BRIGHTNESS = getattr(config, 'led_brightness', 128)
 
 print("LED strip test - {} pixels on GPIO{}, channel {}, brightness {}".format(
