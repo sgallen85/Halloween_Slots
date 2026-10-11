@@ -25,6 +25,7 @@ spin_sounds_volume = 0.8        # spin and reel-stop sounds, 0-1; lower = wins s
 # The jackpot sound skips win_sound_delay and starts as soon as the spin sound ends.
 jackpot_animation = 'combo'     # 'combo' (fireworks alternating pumpkin / other icons), 'fireworks' (pumpkins only), or 'rain'
 win_animation = 'fireworks'     # three of a kind: 'fireworks' (icon bursts from the reels) or 'rain' (icon rains down)
+fireworks_rocket_chance = 0.35  # share of fireworks that shoot up as one icon and explode in the air (0 = none)
 
 # Chance of each spin result (should add up to 1.0).
 # Normal odds:  {'none': 0.43, 'double': 0.30, 'triple': 0.25, 'jackpot': 0.02}

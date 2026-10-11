@@ -434,6 +434,9 @@ class JackpotCelebration(Widget):
     FW_PER_BURST = (9, 14)       # pumpkins per burst
     FW_GAP = (0.3, 0.85)         # seconds between bursts
     FW_SCALE = (0.45, 0.95)      # pumpkin size vs. the reel icons
+    FW_ROCKET_SPEED = (880, 1000) # rockets: launch speed, px/s (bursts ~300-480 px above the reels)
+    FW_ROCKET_FUSE = (0.6, 0.8)  # rockets: seconds of flight before they explode
+    FW_ROCKET_SPREAD = 0.6       # rockets: max lean from straight up, radians (~35 deg)
 
     def _texture(self, path):
         texture = self._textures.get(path)
@@ -452,6 +455,9 @@ class JackpotCelebration(Widget):
         if not origins or not os.path.exists(icon_path):
             return
         self.run_seconds = max(self.duration, duration or 0)
+        # Share of launches that are rockets: one icon shooting up with a
+        # trail, exploding into a burst up in the air
+        self.rocket_chance = getattr(config, 'fireworks_rocket_chance', 0.35)
         now = time.time()
         alt = [p for p in (alt_paths or []) if os.path.exists(p)]
         self._fw = {'main': self._texture(icon_path),
@@ -475,7 +481,10 @@ class JackpotCelebration(Widget):
             return random.choice(fw['alt'])
         return fw['main']
 
-    def _fw_add(self, texture, x, y, vx, vy, scale, life, now, gravity=True):
+    def _fw_add(self, texture, x, y, vx, vy, scale, life, now, kind='spark'):
+        """kind: 'spark' (a flying piece of a burst), 'pop' (the flash at a
+        burst's centre), 'rocket' (one icon climbing before it explodes)
+        or 'trail' (a fading copy left behind a rocket)."""
         fw = self._fw
         s = fw['size'] * scale
         group = InstructionGroup()
@@ -484,14 +493,24 @@ class JackpotCelebration(Widget):
         group.add(color)
         group.add(rect)
         self.canvas.add(group)
-        self._sparks.append([group, color, rect, x, y, vx, vy, now, life, s, gravity])
+        self._sparks.append([group, color, rect, x, y, vx, vy, now, life, s, kind, now])
 
-    def _fw_burst(self, origin, now, big=False):
+    def _fw_rocket(self, origin, now):
+        """One icon shooting up from the reel at a slight angle; it
+        explodes into a burst of the same icon when its fuse runs out."""
         ox, oy = origin
         texture = self._fw_next_texture()
+        angle = math.pi / 2 + random.uniform(-self.FW_ROCKET_SPREAD, self.FW_ROCKET_SPREAD)
+        speed = random.uniform(*self.FW_ROCKET_SPEED)
+        self._fw_add(texture, ox, oy, math.cos(angle) * speed, math.sin(angle) * speed,
+                     1.0, random.uniform(*self.FW_ROCKET_FUSE), now, kind='rocket')
+
+    def _fw_burst(self, origin, now, big=False, texture=None):
+        ox, oy = origin
+        if texture is None:
+            texture = self._fw_next_texture()
         # the "pop": the icon swelling up and fading at the launch point
-        self._fw_add(texture, ox, oy, 0, 0, 1.0, 0.35, now, gravity=False)
-        self._sparks[-1].append('pop')
+        self._fw_add(texture, ox, oy, 0, 0, 1.0, 0.35, now, kind='pop')
         count = random.randint(*self.FW_PER_BURST) + (4 if big else 0)
         spin = random.uniform(0, 2 * math.pi)
         for i in range(count):
@@ -505,21 +524,40 @@ class JackpotCelebration(Widget):
         fw = self._fw
         now = time.time()
         if fw['next'] <= now < fw['last_launch']:
-            self._fw_burst(random.choice(fw['origins']), now)
-            if random.random() < 0.2:                   # now and then, two at once
-                self._fw_burst(random.choice(fw['origins']), now)
+            for _ in range(2 if random.random() < 0.2 else 1):   # now and then, two at once
+                if random.random() < self.rocket_chance:
+                    self._fw_rocket(random.choice(fw['origins']), now)
+                else:
+                    self._fw_burst(random.choice(fw['origins']), now)
             fw['next'] = now + random.uniform(*self.FW_GAP)
         drag = 0.6 ** dt                                # air resistance
         alive = []
+        explode = []
+        trails = []
         for spark in self._sparks:
-            group, color, rect, x, y, vx, vy, born, life, s0 = spark[:10]
+            group, color, rect, x, y, vx, vy, born, life, s0, kind = spark[:11]
             age = (now - born) / life
             if age >= 1.0:
                 self.canvas.remove(group)
+                if kind == 'rocket':
+                    explode.append((x, y, rect.texture))
                 continue
-            if len(spark) > 11:                         # the pop at the launch point
+            if kind == 'pop':                           # the flash at a burst's centre
                 s = s0 * (1.0 + 0.9 * age)
                 color.a = 1.0 - age
+            elif kind == 'trail':                       # fading copy behind a rocket
+                s = s0 * (1.0 - 0.5 * age)
+                color.a = 0.7 * (1.0 - age)
+            elif kind == 'rocket':                      # climbing, full size, until the fuse ends
+                vx *= drag
+                vy = vy * drag + self.FW_GRAVITY * dt
+                x += vx * dt
+                y += vy * dt
+                s = s0
+                spark[3], spark[4], spark[5], spark[6] = x, y, vx, vy
+                if now - spark[11] > 0.03:              # drop a trail copy every few frames
+                    spark[11] = now
+                    trails.append((x, y, rect.texture))
             else:
                 vx *= drag
                 vy = vy * drag + self.FW_GRAVITY * dt
@@ -532,6 +570,10 @@ class JackpotCelebration(Widget):
             rect.size = (s, s)
             alive.append(spark)
         self._sparks = alive
+        for x, y, texture in trails:
+            self._fw_add(texture, x, y, 0, 0, 0.45, 0.4, now, kind='trail')
+        for x, y, texture in explode:
+            self._fw_burst((x, y), now, texture=texture)
 
     def stop(self, *args):
         if self._update_ev:
