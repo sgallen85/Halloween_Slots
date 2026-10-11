@@ -531,6 +531,18 @@ class Slots(Widget):
         # by muting instead of stopping (see _pause_background_music), since
         # Kivy's SDL2 provider get_pos()/seek() are known to always report 0.
         self.music_enabled = getattr(config, 'start_with_music', True)
+
+        # Sound mix. Volume can't go above 1.0 (the file's own level), so
+        # wins stand out by keeping the spin sounds a little lower.
+        #   win_sound_delay     - seconds after the reels stop before the win
+        #                         sound plays, so it doesn't run into the
+        #                         tail of the spin sound
+        #   win_volume          - win/jackpot sounds, 0-1
+        #   spin_sounds_volume  - the spin (roll) and reel-stop sounds, 0-1
+        self.win_sound_delay = getattr(config, 'win_sound_delay', 2.0)
+        self.win_volume = getattr(config, 'win_volume', 1.0)
+        self.spin_sounds_volume = getattr(config, 'spin_sounds_volume', 0.8)
+        self._win_sound_event = None
         self.music_muted = False
         self.idle_music_timeout = getattr(config, 'idle_music_timeout', self.IDLE_MUSIC_TIMEOUT)
         self.music_playlist = []
@@ -1444,8 +1456,12 @@ class Slots(Widget):
         if self.state == 'idle':
             self.state = 'STATE_SPINNING'
             self.stopped = 0
+            if self._win_sound_event:   # a new spin before the last win sound started
+                self._win_sound_event.cancel()
+                self._win_sound_event = None
             snd = self.sounds.get('roll')
             if snd:
+                snd.volume = self.spin_sounds_volume
                 snd.play()
             self.start_time = time.time()
             self.last_time = time.time()
@@ -1671,6 +1687,7 @@ class Slots(Widget):
                 self.strips[self.stopped].set_uv(self, self.strips[self.stopped].slot_to_uv(display_slot))
                 snd = self.sounds.get('reel-icon-%d' % (slotnum+1))
                 if snd:
+                    snd.volume = self.spin_sounds_volume
                     snd.play()
                 self.landed.append(slotnum)
                 self.stopped += 1
@@ -1732,7 +1749,12 @@ class Slots(Widget):
             snd = self.sounds.get('win')
 
         if snd:
-            snd.play()
+            def play(dt):
+                self._win_sound_event = None
+                snd.volume = self.win_volume
+                snd.play()
+            # A short pause first, so it doesn't run into the end of the spin sound
+            self._win_sound_event = Clock.schedule_once(play, max(0.0, self.win_sound_delay))
 
 class GameScreen(Screen):
 

@@ -185,6 +185,8 @@ most common changes:
 | `win_odds` | How often each result comes up |
 | `background_file` | The starting background picture |
 | `win_banner_hold_seconds` | How long the win banner stays up |
+| `win_sound_delay` | Pause after the reels stop before the win sound (default 2 s) |
+| `win_volume`, `spin_sounds_volume` | Sound mix: wins at 1.0, spin and reel sounds at 0.8 so wins stand out |
 | `start_with_music`, `idle_music_timeout` | When music starts |
 | `led_brightness`, `led_count` | LED strip brightness and length |
 | `led_pulse_seconds`, `led_runner_seconds` | Speed of the idle light loop |
