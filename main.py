@@ -755,6 +755,8 @@ class Slots(Widget):
         #   led_music_beats_per_color - beats before moving to the next color
         #   led_music_style  - 'meter'   (default) a level meter bouncing out
         #                                  from the middle with peak dots
+        #                      'halloween_meter'  the meter in Halloween
+        #                                  colors only, never mixed
         #                      'party'   a full light show that follows the
         #                                  song's harmony, sections, bars,
         #                                  cymbals and drops
@@ -988,6 +990,26 @@ class Slots(Widget):
         if self.led_music_style == 'halloween_party' and 'intensity' in light_map:
             self._led_party_frame(t, e, k, palette=self.led_halloween_colors)
             return
+        if self.led_music_style == 'halloween_meter':
+            # Pure palette colors: no blending along the bar, and a phrase
+            # change dims the old color out and the new one in rather than
+            # crossfading through off-palette shades.
+            palette = self.led_halloween_colors or colors
+            base = palette[phrase % len(palette)]
+            accent = palette[(phrase + 1) % len(palette)]
+            if phrase > 0:
+                half_fade = self.LED_MUSIC_FADE_SECONDS / 2.0
+                since = t - beat_times[phrase * per]
+                if since < half_fade:      # old colors dimming out
+                    dim = 1.0 - since / half_fade
+                    base = tuple(c * dim for c in palette[(phrase - 1) % len(palette)])
+                    accent = tuple(c * dim for c in palette[phrase % len(palette)])
+                elif since < 2 * half_fade:  # new colors coming up
+                    up = (since - half_fade) / half_fade
+                    base = tuple(c * up for c in base)
+                    accent = tuple(c * up for c in accent)
+            self._led_meter_frame(t, e, k, base, accent, pure=True)
+            return
         if self.led_music_style in ('meter', 'party', 'halloween_party'):   # old maps fall back to meter
             self._led_meter_frame(t, e, k, base, accent)
             return
@@ -1038,14 +1060,16 @@ class Slots(Widget):
     LED_METER_PEAK_HOLD = 0.35  # seconds the peak dots wait before falling
     LED_METER_PEAK_GRAVITY = 3.0  # how fast the peak dots accelerate back in
 
-    def _led_meter_frame(self, t, e, k, base, accent):
+    def _led_meter_frame(self, t, e, k, base, accent, pure=False):
         """Music lights as a level meter, mirrored from the middle of the
         strip: the bar jumps out on each beat (further on strong beats, with
         the bass setting how big it stays between beats), then falls back
         in. A peak dot at each end holds the furthest point for a moment,
         then drops. The bar is the base color in the middle, blending to
         the accent color at the tips. Brightness pulses with the beat on
-        top of the movement (see led_music_meter_dim)."""
+        top of the movement (see led_music_meter_dim). With `pure` (the
+        Halloween Meter style) the bar is solid base color and the peak dots
+        solid accent color, so no in-between shades appear."""
         n = self.led_count
         level, peak, flash = self._meter_step(t, e, k)
 
@@ -1064,13 +1088,13 @@ class Slots(Widget):
             d = abs(i - center) + 0.5          # distance from the middle, in LEDs
             frac = min(1.0, d / half)
             # base color in the middle, blending to the accent at the tips
-            mix = frac ** 1.5
+            mix = 0.0 if pure else frac ** 1.5
             color = [b + (a - b) * mix for b, a in zip(base, accent)]
             inside = max(0.0, min(1.0, bar - d + 1.0))   # soft edge on the bar
             level = outside_bright + (bar_bright - outside_bright) * inside
             if abs(d - peak) < 1.0 and peak > 1.0:       # peak dot
                 level = 1.0
-                color = [min(255, c * 0.6 + 100) for c in accent]  # brighter, whiter
+                color = list(accent) if pure else [min(255, c * 0.6 + 100) for c in accent]  # brighter, whiter
             pixels.append((int(color[0] * level), int(color[1] * level), int(color[2] * level)))
         ledStrip.set_pixels(pixels)
 
@@ -1296,15 +1320,16 @@ class Slots(Widget):
 
         ledStrip.set_pixels([(min(255, int(r)), min(255, int(g)), min(255, int(b))) for r, g, b in pixels])
 
-    LED_MUSIC_STYLES = ['meter', 'party', 'halloween_party', 'ripples', 'pulse']
-    LED_MUSIC_STYLE_NAMES = {'meter': 'Meter', 'party': 'Party', 'halloween_party': 'Halloween Party',
+    LED_MUSIC_STYLES = ['meter', 'halloween_meter', 'party', 'halloween_party', 'ripples', 'pulse']
+    LED_MUSIC_STYLE_NAMES = {'meter': 'Meter', 'halloween_meter': 'Halloween Meter',
+                             'party': 'Party', 'halloween_party': 'Halloween Party',
                              'ripples': 'Ripples', 'pulse': 'Pulse'}
 
     def music_style_name(self):
         return self.LED_MUSIC_STYLE_NAMES.get(self.led_music_style, self.led_music_style)
 
     def cycle_music_style(self):
-        """K key: meter -> party -> halloween party -> ripples -> pulse. Returns a short
+        """K key: meter -> halloween meter -> party -> halloween party -> ripples -> pulse. Returns a short
         description for the notification."""
         styles = self.LED_MUSIC_STYLES
         i = styles.index(self.led_music_style) if self.led_music_style in styles else -1
@@ -2165,7 +2190,7 @@ class GameScreen(Screen):
         ('P',     'Music: in order / shuffle'),
         ('B',     'Next background picture'),
         ('L',     'Lights: follow the music / normal loop'),
-        ('K',     'Music light style: meter / party / halloween party / ...'),
+        ('K',     'Music light style: meter / halloween meter / party / ...'),
         ('[  ]',  'Music lights earlier / later'),
         ('H',     'Show / hide this help'),
         ('Esc',   'Quit the game'),
