@@ -42,7 +42,6 @@ Halloween_Slots/
 │       └── background/        music playlist + .lights.json beat maps
 ├── scripts/
 │   ├── setup_pi.sh    one-time install on a fresh Pi
-│   ├── enable_spi_leds.sh  one-time: LED strip on GPIO10, no sudo needed
 │   ├── stop_game.sh   force-quit the game (e.g. over SSH)
 │   ├── setup_mac.sh   one-time install for testing on a Mac
 │   └── run_mac.sh     run on a Mac
@@ -59,19 +58,20 @@ Halloween_Slots/
 | Part | Connection |
 |---|---|
 | Spin button | Between **GPIO17** (physical pin 11) and any **GND** pin. Set with `gpio_button`. |
-| LED strip (WS2812B) | Data to **GPIO10** (physical pin 19) to run without sudo, or **GPIO21** (pin 40), which needs sudo. Set with `led_pin`. 5V and GND from a separate 5V supply, with its GND also tied to the Pi's GND. |
+| LED strip (WS2812B) | Data to **GPIO21** (physical pin 40); 5V and GND from a separate 5V supply, with its GND also tied to the Pi's GND. |
 | Screen | HDMI, 1920x1080 works best. |
 | Speakers | 3.5 mm jack or HDMI audio. |
 
 LED tips:
-- **GPIO10 (SPI)** is recommended: the game runs as your normal user. Run
-  `./scripts/enable_spi_leds.sh` once. It turns on SPI, steadies the Pi's
-  clock so the LED data doesn't glitch, and gives your user access. Then
-  set `led_pin = 10` and reboot.
-- **GPIO21 (PCM)** also works, but the LED library then needs root, so
-  `launch.sh` starts the game with `sudo`. `launch.sh` reads `led_pin` and
-  only uses sudo when it's needed.
-- Avoid GPIO18/19: they clash with the Pi's audio.
+- Keep the strip on GPIO21 / channel 0. GPIO18/19 clash with the Pi's
+  audio, and GPIO10 (SPI) garbled the colors on this Pi.
+- The LED library needs root, which is why `launch.sh` starts the game with
+  `sudo`. To skip the password prompt, add a sudo rule for just the game:
+  `sudo visudo -f /etc/sudoers.d/halloween-slots`, then add the line
+  `admin ALL=(root) NOPASSWD: /usr/bin/python3 /home/admin/Halloween_Slots/main.py`.
+  That lets anything running as `admin` start the game as root, so only do
+  it on a Pi nobody else uses. To undo it:
+  `sudo rm /etc/sudoers.d/halloween-slots`.
 - If the strip flickers at full brightness, lower `led_brightness`. If that
   doesn't help, the power supply is usually the cause: add a bigger 5V
   supply, inject power at both ends of the strip, or add a 300-500 Ω
@@ -89,12 +89,9 @@ cd Halloween_Slots
 ```
 
 This installs Kivy, the GPIO and LED libraries (system-wide, so they work
-with or without sudo), plus ffmpeg and numpy for the music-lights tool.
-For the LED strip on GPIO10, also run `./scripts/enable_spi_leds.sh` (see
-LED tips above).
+under sudo), plus ffmpeg and numpy for the music-lights tool.
 
-To test the LED strip on its own: `python3 tools/led_test.py`. Add `sudo`
-if the strip is on GPIO21.
+To test the LED strip on its own: `sudo python3 tools/led_test.py`
 
 ### Starting the game
 
@@ -220,7 +217,7 @@ window, set `window_size = (1920, 1080)` in `config.py`.
 | Problem | Try |
 |---|---|
 | Button does nothing | Check that `gpio_button` uses the **GPIO** number, not the physical pin number. The button goes between that pin and GND. Watch the log for `Button Pressed`. |
-| LEDs stay dark | Check that `led_pin` matches the wire (10 or 21) and that `led_count` is right, then try `tools/led_test.py`. On GPIO10, run `scripts/enable_spi_leds.sh` and reboot. On GPIO21, the game needs sudo (`launch.sh` handles it). |
+| LEDs stay dark | Run with `sudo` (`launch.sh` does). Check `led_pin = 21` and `led_count`, then try `sudo python3 tools/led_test.py`. |
 | LEDs flicker | Lower `led_brightness` and check the power supply (see LED tips above). |
 | `ALSA ... underrun occurred` in the log | Harmless if the sound has no clicks or skips. |
 | Music lights out of sync | Use **[** and **]** while a song plays, then save the value in `led_music_offset`. |

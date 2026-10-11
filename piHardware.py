@@ -19,16 +19,12 @@ def setup():
 
 class ledStrip:
     """
-    Controls a WS2812B LED strip via rpi_ws281x. Which pin the data wire is
-    on decides how the library drives it:
-      GPIO10 (SPI)  - through the SPI port (/dev/spidev0.0). Works as a
-                      normal user (in the 'spi' group) - no sudo. Needs SPI
-                      turned on; see scripts/enable_spi_leds.sh.
-      GPIO21 (PCM)  - through the PCM block via /dev/mem, which needs root
-                      (sudo).
-    Avoid GPIO18/19 (PWM): GPIO18 doubles as the Pi's 3.5mm audio PWM pin,
-    and the two conflict (booting with the strip there lit the first LEDs
-    solid white from the audio driver's own init).
+    Controls a WS2812B LED strip via rpi_ws281x on GPIO21 (the PCM block),
+    which needs root - hence sudo in launch.sh. Avoid GPIO18/19 (PWM):
+    GPIO18 doubles as the Pi's 3.5mm audio PWM pin, and the two conflict
+    (booting with the strip there lit the first LEDs solid white from the
+    audio driver's own init). GPIO10 (SPI) was tried too: the strip's
+    timing followed the Pi's changing core clock and colors came out wrong.
 
     All methods here are instantaneous/non-blocking - any flashing or timed
     animation lives in main.py via Kivy's Clock, not here, so LED effects
@@ -37,8 +33,8 @@ class ledStrip:
     Config overrides (all optional, in config.py):
       led_enabled     - set False to disable entirely without uninstalling anything
       led_count       - number of LEDs on the strip (default 60)
-      led_pin         - GPIO pin number, BCM numbering: 10 (SPI) or 21 (PCM)
-      led_channel     - 0 for GPIO10 and GPIO21
+      led_pin         - GPIO pin number, BCM numbering (default 21)
+      led_channel     - 0 for GPIO21
       led_brightness  - 0-255 (default 128)
     """
     def __init__(self):
@@ -63,13 +59,8 @@ class ledStrip:
                                      led_brightness, led_channel)
             self.strip.begin()
         except Exception as e:
-            if led_pin == 10:
-                hint = ('on GPIO10 (SPI) this usually means SPI is off or your user '
-                        'isn\'t in the spi group - run scripts/enable_spi_leds.sh')
-            else:
-                hint = ('on GPIO{} this needs root - start with sudo (launch.sh does), '
-                        'or move the strip to GPIO10 to run without it'.format(led_pin))
-            logging.warning('LED strip failed to initialize ({}): {}'.format(hint, e))
+            logging.warning('LED strip failed to initialize (it needs root - start the game '
+                            'with sudo, as launch.sh does): {}'.format(e))
             self.strip = None
 
     def set_all(self, r, g, b):

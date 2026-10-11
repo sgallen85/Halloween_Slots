@@ -20,8 +20,8 @@ sudo apt-get install -y \
     alsa-utils \
     ffmpeg python3-numpy   # only for tools/make_light_maps.py (music lights)
 
-# Installed system-wide (with sudo) so they work both for your normal user
-# and under sudo - the game needs sudo when the LED strip is on GPIO21.
+# Installed system-wide (with sudo) so they work under sudo - the LED strip
+# library needs root, so the game runs as sudo python3 main.py.
 echo "=== Installing Python packages ==="
 sudo pip3 install "kivy[base]==2.3.1" --break-system-packages
 sudo pip3 install RPi.GPIO rpi_ws281x --break-system-packages
@@ -33,7 +33,5 @@ sudo python3 -c "import RPi.GPIO; print('RPi.GPIO OK')"
 sudo python3 -c "import rpi_ws281x; print('rpi_ws281x OK')"
 
 echo ""
-echo "Setup complete. For the LED strip on GPIO10 (no sudo needed), also run:"
-echo "  ~/Halloween_Slots/scripts/enable_spi_leds.sh"
-echo "Start the game with:"
+echo "Setup complete. Start the game with:"
 echo "  ~/Halloween_Slots/launch.sh"
