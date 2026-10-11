@@ -384,14 +384,20 @@ class JackpotCelebration(Widget):
                 rect = Rectangle(texture=texture, pos=(x, y), size=(size, size))
                 self._bodies.append([rect, x, y, vx, 0.0])
 
+    MAX_FALL_SPEED = 1200   # px/s - icons dropped from high up would otherwise hit
+                            # the bottom so fast they bounce back over the top of
+                            # the screen, looking like they came from the bottom
+
     def _update(self, dt):
+        dt = min(dt, 0.05)  # a slow frame mustn't fling icons across the screen
         size = self.icon_size_now
         margin = size + 50  # fully off-screen before we despawn
         gravity, restitution = self.gravity, self.bottom_restitution
+        max_fall = self.MAX_FALL_SPEED
         surviving = []
         for body in self._bodies:
             rect, x, y, vx, vy = body
-            vy += gravity * dt
+            vy = max(vy + gravity * dt, -max_fall)
             x += vx * dt
             y += vy * dt
 
@@ -427,39 +433,52 @@ class JackpotCelebration(Widget):
     FW_GAP = (0.3, 0.85)         # seconds between bursts
     FW_SCALE = (0.45, 0.95)      # pumpkin size vs. the reel icons
 
-    def start_fireworks(self, icon_path, origins, size, duration=None, rain_paths=None):
-        """Fireworks: every pumpkin on the payline bursts at once, then
-        they take turns firing bursts of pumpkins in all directions at
-        random moments until shortly before `duration` is up, so the last
-        burst fades out with the music. With `rain_paths`, those icons
-        also fall once from the top as the fireworks start (no re-drops)."""
+    def _texture(self, path):
+        texture = self._textures.get(path)
+        if texture is None:
+            texture = self._textures[path] = Image(path).texture
+        return texture
+
+    def start_fireworks(self, icon_path, origins, size, duration=None, alt_paths=None):
+        """Fireworks: every icon on the payline bursts at once, then they
+        take turns firing bursts of icons in all directions at random
+        moments until shortly before `duration` is up (or the usual
+        celebration length), so the last burst fades out on time. With
+        `alt_paths`, every other burst uses one of those icons instead,
+        picked at random (the jackpot: pumpkin, vampire, pumpkin, ...)."""
         self.stop()
         if not origins or not os.path.exists(icon_path):
             return
-        texture = self._textures.get(icon_path)
-        if texture is None:
-            texture = self._textures[icon_path] = Image(icon_path).texture
         self.run_seconds = max(self.duration, duration or 0)
         now = time.time()
-        self._fw = {'texture': texture, 'origins': origins, 'size': size,
+        alt = [p for p in (alt_paths or []) if os.path.exists(p)]
+        self._fw = {'main': self._texture(icon_path),
+                    'alt': [self._texture(p) for p in alt],
+                    'count': 0, 'origins': origins, 'size': size,
                     'next': now + random.uniform(*self.FW_GAP),
                     'last_launch': now + self.run_seconds - self.FW_LIFE[1]}
         self._sparks = []
-        if rain_paths:
-            self._rain_until = 0.0                  # one drop only
-            self._spawn_rain(rain_paths, size, self.icon_count)
         self.opacity = 1
         for origin in origins:                      # the opening volley
             self._fw_burst(origin, now, big=True)
         self._update_ev = Clock.schedule_interval(self._fw_update, 0)
         self._stop_ev = Clock.schedule_once(self.stop, self.run_seconds)
 
-    def _fw_add(self, x, y, vx, vy, scale, life, now, gravity=True):
+    def _fw_next_texture(self):
+        """Main icon for even bursts; with alternates, a random one of
+        those for odd bursts."""
+        fw = self._fw
+        fw['count'] += 1
+        if fw['alt'] and fw['count'] % 2 == 0:
+            return random.choice(fw['alt'])
+        return fw['main']
+
+    def _fw_add(self, texture, x, y, vx, vy, scale, life, now, gravity=True):
         fw = self._fw
         s = fw['size'] * scale
         group = InstructionGroup()
         color = Color(1, 1, 1, 1)
-        rect = Rectangle(texture=fw['texture'], pos=(x - s / 2, y - s / 2), size=(s, s))
+        rect = Rectangle(texture=texture, pos=(x - s / 2, y - s / 2), size=(s, s))
         group.add(color)
         group.add(rect)
         self.canvas.add(group)
@@ -467,20 +486,20 @@ class JackpotCelebration(Widget):
 
     def _fw_burst(self, origin, now, big=False):
         ox, oy = origin
-        # the "pop": a pumpkin swelling up and fading at the launch point
-        self._fw_add(ox, oy, 0, 0, 1.0, 0.35, now, gravity=False)
+        texture = self._fw_next_texture()
+        # the "pop": the icon swelling up and fading at the launch point
+        self._fw_add(texture, ox, oy, 0, 0, 1.0, 0.35, now, gravity=False)
         self._sparks[-1].append('pop')
         count = random.randint(*self.FW_PER_BURST) + (4 if big else 0)
         spin = random.uniform(0, 2 * math.pi)
         for i in range(count):
             angle = spin + 2 * math.pi * i / count + random.uniform(-0.15, 0.15)
             speed = random.uniform(*self.FW_SPEED) * (1.15 if big else 1.0)
-            self._fw_add(ox, oy, math.cos(angle) * speed, math.sin(angle) * speed,
+            self._fw_add(texture, ox, oy, math.cos(angle) * speed, math.sin(angle) * speed,
                          random.uniform(*self.FW_SCALE), random.uniform(*self.FW_LIFE), now)
 
     def _fw_update(self, dt):
-        if self._bodies:
-            self._update(dt)                            # the falling icons, if any
+        dt = min(dt, 0.05)
         fw = self._fw
         now = time.time()
         if fw['next'] <= now < fw['last_launch']:
@@ -1664,25 +1683,22 @@ class Slots(Widget):
     def start_jackpot_celebration(self, seconds=0.0):
         """The jackpot animation, lasting `seconds` (its song's length).
         config.jackpot_animation picks:
-          'combo'     (default) one drop of every icon except the pumpkin,
-                      with pumpkin fireworks bursting out of the reels
-          'fireworks' just the pumpkin fireworks
+          'combo'     (default) fireworks from the three reel pumpkins,
+                      every other burst one of the other icons
+          'fireworks' pumpkin fireworks only
           'rain'      every icon raining down for the whole song"""
         if self.game_screen is None:
             return
         style = getattr(config, 'jackpot_animation', 'combo')
         if style in ('combo', 'fireworks'):
             pumpkin_name = symbol_name(self.pumpkin_symbol)
-            pumpkin = asset("images", "icons", pumpkin_name + ".png")
-            payline_y = self.size[1] / 2
-            origins = [(strip.pos[0] + strip.size[0] / 2, payline_y) for strip in self.strips]
-            rain = None
+            alt = None
             if style == 'combo':
-                rain = [asset("images", "icons", name + ".png")
-                        for name in SYMBOL_NAMES[:self.num_symbols] if name != pumpkin_name]
-                rain = [path for path in rain if os.path.exists(path)]
+                alt = [asset("images", "icons", name + ".png")
+                       for name in SYMBOL_NAMES[:self.num_symbols] if name != pumpkin_name]
             self.game_screen.win_celebration.start_fireworks(
-                pumpkin, origins, self.reel_icon_pixel_size(), duration=seconds, rain_paths=rain)
+                asset("images", "icons", pumpkin_name + ".png"), self._payline_origins(),
+                self.reel_icon_pixel_size(), duration=seconds, alt_paths=alt)
             return
         icon_dir = asset("images", "icons")
         icon_paths = []
@@ -1693,12 +1709,25 @@ class Slots(Widget):
         self.game_screen.win_celebration.start(icon_paths, icon_size=self.reel_icon_pixel_size(),
                                                 duration=seconds)
 
+    def _payline_origins(self):
+        """Screen positions of the three icons on the payline."""
+        payline_y = self.size[1] / 2
+        return [(strip.pos[0] + strip.size[0] / 2, payline_y) for strip in self.strips]
+
     def start_triple_celebration(self, matched_symbol):
+        """Three of a kind. config.win_animation picks 'rain' (the icon
+        raining down, the default) or 'fireworks' (the icon bursting out
+        of the three reels). Either way it lasts the usual celebration
+        length, not the jackpot's."""
         if self.game_screen is None:
             return
         icon_path = os.path.join(asset("images", "icons"),
                                   symbol_name(matched_symbol) + ".png")
         if not os.path.exists(icon_path):
+            return
+        if getattr(config, 'win_animation', 'rain') == 'fireworks':
+            self.game_screen.win_celebration.start_fireworks(
+                icon_path, self._payline_origins(), self.reel_icon_pixel_size())
             return
         self.game_screen.win_celebration.start([icon_path],
                                                 icon_size=self.reel_icon_pixel_size(),

@@ -137,11 +137,12 @@ keys last until the game restarts. To keep one, copy the value into
 - Payouts (in treats): any spin 2, double 4, three of a kind 12,
   jackpot (3 pumpkins) 20.
   One pumpkin doubles a payout and two pumpkins triple it.
-- Wins show a banner. A triple rains that icon down the screen. A jackpot
-  drops every other icon once while pumpkin fireworks burst out of the
-  three reel pumpkins for the length of its song (`jackpot_animation`:
-  `'combo'`, `'fireworks'` or `'rain'`). The LEDs put on a multicolor show for as long as the win is on
-  screen.
+- Wins show a banner. A triple sets off fireworks of that icon bursting
+  out of the three reels (`win_animation = 'rain'` rains it down
+  instead). A jackpot fires bursts out of the three reel pumpkins for the
+  length of its song, alternating pumpkins with the other icons
+  (`jackpot_animation`: `'combo'`, `'fireworks'` for pumpkins only, or
+  `'rain'`).
 - Every spin is saved to `logs/spins_YYYY-MM-DD.csv`, so you can count
   treats afterwards.
 
