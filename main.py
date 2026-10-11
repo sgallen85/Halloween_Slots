@@ -843,6 +843,17 @@ class Slots(Widget):
                 logging.warning('sound failed to load (will play silently): {}'.format(fn))
             self.sounds[f] = snd
 
+        # Reel-stop sound: assets/audio/cash (any extension), one copy per
+        # reel so each stop rings out fully instead of cutting off the one
+        # before it. A reel-icon-<N> file, if present, still wins for that icon.
+        self.reel_stop_sounds = []
+        found = sorted(glob.glob(asset('audio', 'cash.*')))
+        if found:
+            for _ in range(3):
+                snd = SoundLoader.load(found[0])
+                if snd:
+                    self.reel_stop_sounds.append(snd)
+
         self._load_background_music()
         self._led_set_idle()
 
@@ -1968,6 +1979,8 @@ class Slots(Widget):
                 display_slot = (self.strips[self.stopped].num_symbols - 1) - slotnum
                 self.strips[self.stopped].set_uv(self, self.strips[self.stopped].slot_to_uv(display_slot))
                 snd = self.sounds.get('reel-icon-%d' % (slotnum+1))
+                if snd is None and self.reel_stop_sounds:
+                    snd = self.reel_stop_sounds[self.stopped % len(self.reel_stop_sounds)]
                 if snd:
                     snd.volume = self.spin_sounds_volume
                     snd.play()

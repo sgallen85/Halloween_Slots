@@ -202,7 +202,8 @@ To change **sounds**, replace files in `assets/audio/`, keeping the names:
 - `roll`: plays during a spin
 - `win`: generic win sound
 - `jackpot`: optional, for 3 pumpkins; falls back to `win`
-- `reels/reel-icon-1` to `reel-icon-12`: plays as each reel stops
+- `cash`: plays as each reel stops (a `reels/reel-icon-<N>` file, if
+  present, plays instead for that icon)
 - `reels/win-<icon>`: for a double or triple of that icon, for example
   `win-vampire`
 
