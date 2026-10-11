@@ -49,15 +49,15 @@ music_playback = 'order'        # 'order' (by the number at the start of each fi
 # ----------------------------------------------------------------------------
 led_pin = 21                    # keep on GPIO21 (channel 0) - 18/19 clash with the audio
 led_channel = 0
-led_count = 100
+led_count = 115
 led_brightness = 100            # overall brightness 0-255; lower if the strip flickers
 
 # Idle loop: orange pulse, green pulse, purple runner over green, repeat with orange
 #led_idle_colors = [(255, 50, 0), (0, 200, 15)]
-led_pulse_seconds = 4.0         # one color's fade up and back down
+led_pulse_seconds = 2.0         # one color's fade up and back down
 led_pulse_gap = 0.0001          # dark pause between effects
 #led_runner_color = (140, 0, 255)
-led_runner_seconds = 8.0        # runner's trip down the strip and back (0 = no runner)
+led_runner_seconds = 4.0        # runner's trip down the strip and back (0 = no runner)
 led_runner_background_level = 0.3   # brightness of the color under the runner, 0-1
 
 # While the reels spin: alternating colors swapping places
