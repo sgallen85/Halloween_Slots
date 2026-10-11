@@ -93,6 +93,10 @@ Builder.load_string('''
         Slots:
             id: _id_slots
             canvas:
+        # Drawn after the reels but before the banner, so win animations
+        # fly over the reels and behind the banner
+        JackpotCelebration:
+            id: _win_celebration
         FloatLayout:
             id: _win_banner
             size_hint: (1, None)
@@ -130,8 +134,6 @@ Builder.load_string('''
                 keep_ratio: True
                 opacity: 0
                 pos_hint: {'center_x': .85, 'center_y': .5}
-        JackpotCelebration:
-            id: _win_celebration
         Label:
             id: _status_label
             text: ""
