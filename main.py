@@ -330,6 +330,8 @@ class JackpotCelebration(Widget):
         self.opacity = 0
         self._bodies = []  # list of [Rectangle, x, y, vx, vy]
         self._textures = {}  # icon path -> texture, loaded once
+        self.run_seconds = 0.0
+        self._rain_until = 0.0
         self._update_ev = None
         self._stop_ev = None
 
@@ -341,10 +343,18 @@ class JackpotCelebration(Widget):
         self.gravity = getattr(config, 'jackpot_gravity', self.GRAVITY)
         self.bottom_restitution = getattr(config, 'jackpot_bottom_restitution', self.BOTTOM_RESTITUTION)
 
-    def start(self, icon_paths, icon_size=None, count=None):
+    RAIN_TAIL = 3.0   # seconds before the end when re-dropping stops, so the screen clears
+
+    def start(self, icon_paths, icon_size=None, count=None, duration=None):
+        """Starts the rain. With a `duration` longer than usual (the
+        jackpot, matched to its music), icons that fall off the screen
+        are dropped back in from the top until shortly before the end."""
         self.stop()
         if not icon_paths:
             return
+        self.run_seconds = max(self.duration, duration or 0)
+        self._rain_until = time.time() + self.run_seconds - self.RAIN_TAIL
+        self._icon_paths = icon_paths
         size = icon_size if icon_size is not None else self.icon_size
         n = count if count is not None else self.icon_count
         self.icon_size_now = size
@@ -367,7 +377,7 @@ class JackpotCelebration(Widget):
                 self._bodies.append([rect, x, y, vx, 0.0])
         self.opacity = 1
         self._update_ev = Clock.schedule_interval(self._update, 0)
-        self._stop_ev = Clock.schedule_once(self.stop, self.duration)
+        self._stop_ev = Clock.schedule_once(self.stop, self.run_seconds)
 
     def _update(self, dt):
         size = self.icon_size_now
@@ -387,7 +397,16 @@ class JackpotCelebration(Widget):
             # No side walls - icons that drift past either edge just keep
             # going and get removed once they're fully out of view.
             if x + size < -margin or x > 1920 + margin:
-                self.canvas.remove(rect)
+                if time.time() < self._rain_until:
+                    # Still going - drop it back in from the top
+                    x = random.uniform(0, 1920 - size)
+                    y = 1080 + random.uniform(0, 600)
+                    vx = (1 if x < (1920 - size) / 2 else -1) * random.uniform(*self.drift_speed_range)
+                    rect.pos = (x, y)
+                    body[1], body[2], body[3], body[4] = x, y, vx, 0.0
+                    surviving.append(body)
+                else:
+                    self.canvas.remove(rect)
                 continue
 
             rect.pos = (x, y)
@@ -550,6 +569,7 @@ class Slots(Widget):
         self._win_sound_event = None
         self._roll_ends_at = 0.0   # when the current spin sound finishes
         self._jackpot_sound = None # music waits while this is due or playing
+        self._jackpot_show_seconds = 0.0   # jackpot animation length (its music's length)
         self.music_muted = False
         self.idle_music_timeout = getattr(config, 'idle_music_timeout', self.IDLE_MUSIC_TIMEOUT)
         self.music_playlist = []
@@ -1542,7 +1562,7 @@ class Slots(Widget):
         that math or the screen size ever changes."""
         return self.size[1] / (Strip.WINDOW_FRACTION * Strip.WINDOW_REFERENCE_N)
 
-    def start_jackpot_celebration(self):
+    def start_jackpot_celebration(self, seconds=0.0):
         if self.game_screen is None:
             return
         icon_dir = asset("images", "icons")
@@ -1551,7 +1571,8 @@ class Slots(Widget):
             path = os.path.join(icon_dir, name + ".png")
             if os.path.exists(path):
                 icon_paths.append(path)
-        self.game_screen.win_celebration.start(icon_paths, icon_size=self.reel_icon_pixel_size())
+        self.game_screen.win_celebration.start(icon_paths, icon_size=self.reel_icon_pixel_size(),
+                                                duration=seconds)
 
     def start_triple_celebration(self, matched_symbol):
         if self.game_screen is None:
@@ -1587,13 +1608,16 @@ class Slots(Widget):
 
         return match_type, base, pumpkin_count
 
-    def show_win(self, match_type, payout, pumpkin_count=0):
+    def show_win(self, match_type, payout, pumpkin_count=0, min_seconds=0.0):
         """Shows the win banner. Returns how many seconds it stays on
-        screen (fade in + hold + fade out), so the LEDs can match it."""
+        screen (fade in + hold + fade out), so the LEDs can match it.
+        `min_seconds` stretches it (the jackpot banner stays up for its
+        whole song)."""
         if self.game_screen is None:
             return 0.0
         style = TIER_STYLE[match_type]
         hold = getattr(config, 'win_banner_hold_seconds', style['hold'])
+        hold = max(hold, (min_seconds or 0) - 0.6)
         banner = self.game_screen.win_banner
         label = self.game_screen.win_label
         icon_left = self.game_screen.win_icon_left
@@ -1683,7 +1707,7 @@ class Slots(Widget):
         if self.game_screen is None:
             return 0.0
         celebration = self.game_screen.win_celebration
-        return celebration.duration if celebration._stop_ev else 0.0
+        return celebration.run_seconds if celebration._stop_ev else 0.0
 
     def update(self):
         dt = time.time() - self.start_time
@@ -1723,9 +1747,10 @@ class Slots(Widget):
 
             self.play_result_sound(match_type, pumpkin_count)
 
-            banner_secs = self.show_win(match_type, payout, pumpkin_count)
+            banner_secs = self.show_win(match_type, payout, pumpkin_count,
+                                        min_seconds=self._jackpot_show_seconds)
             if match_type == 'jackpot':
-                self.start_jackpot_celebration()
+                self.start_jackpot_celebration(self._jackpot_show_seconds)
             elif match_type == '3 of a kind':
                 counts = Counter(self.landed)
                 matched_symbol = max(counts, key=counts.get)
@@ -1758,6 +1783,7 @@ class Slots(Widget):
         Icon names come from SYMBOL_NAMES, lowercased.
         """
         snd = None
+        self._jackpot_show_seconds = 0.0
         if match_type == 'jackpot':
             snd = self.sounds.get('jackpot')
         elif match_type in ('double', '3 of a kind'):
@@ -1779,6 +1805,10 @@ class Slots(Widget):
                 # the background music until it has finished
                 delay = self._roll_ends_at - time.time()
                 self._jackpot_sound = snd
+                length = getattr(snd, 'length', 0) or 0
+                if length > 0:
+                    # the jackpot animation and lights run until the music ends
+                    self._jackpot_show_seconds = max(0.0, delay) + length
             else:
                 # A short pause first, so it doesn't run into the end of the spin sound
                 delay = self.win_sound_delay
