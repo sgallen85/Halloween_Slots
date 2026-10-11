@@ -543,6 +543,8 @@ class Slots(Widget):
         #                      'party'   a full light show that follows the
         #                                  song's harmony, sections, bars,
         #                                  cymbals and drops
+        #                      'halloween_party'  the party show in Halloween
+        #                                  colors only (led_halloween_colors)
         #                      'ripples' each beat ripples out from the middle
         #                      'pulse'   the whole strip flashes on each beat
         #   led_music_meter_dim - ('meter' only) bar brightness between beats,
@@ -561,6 +563,11 @@ class Slots(Widget):
         self.led_music_beats_per_color = getattr(config, 'led_music_beats_per_color', 16)
         self.led_music_style = getattr(config, 'led_music_style', 'meter')
         self.led_music_meter_dim = getattr(config, 'led_music_meter_dim', 0.45)
+        self.led_halloween_colors = getattr(config, 'led_halloween_colors', [
+            (255, 70, 0),     # orange
+            (130, 0, 255),    # purple
+            (60, 255, 0),     # green
+        ])
         self._meter = None            # level meter state, reset per track
         self._party = None            # party show state, reset per track
         self.led_music_accent_threshold = getattr(config, 'led_music_accent_threshold', 95)
@@ -751,7 +758,10 @@ class Slots(Widget):
         if self.led_music_style == 'party' and 'intensity' in light_map:
             self._led_party_frame(t, e, k)
             return
-        if self.led_music_style in ('meter', 'party'):   # party falls back to meter on old maps
+        if self.led_music_style == 'halloween_party' and 'intensity' in light_map:
+            self._led_party_frame(t, e, k, palette=self.led_halloween_colors)
+            return
+        if self.led_music_style in ('meter', 'party', 'halloween_party'):   # old maps fall back to meter
             self._led_meter_frame(t, e, k, base, accent)
             return
 
@@ -881,7 +891,7 @@ class Slots(Widget):
     PARTY_SEGMENT = 6             # LEDs per color block in the chorus chase
     PARTY_WHITE = 210             # cap on white flashes (full white on every LED draws a lot of power)
 
-    def _led_party_frame(self, t, e, k):
+    def _led_party_frame(self, t, e, k, palette=None):
         """The party show. Reads the whole light map, not just the beat:
           color      follows the song's harmony (see make_light_maps.py) -
                      the main color, plus a contrasting second color
@@ -894,6 +904,8 @@ class Slots(Widget):
           bars       a flash at both ends of the strip on every bar
           treble     white sparkles on hi-hats and cymbals
           drops      a white burst from the middle, then colored confetti
+        With a `palette` (the Halloween Party style), the harmony picks from
+        those colors instead of the full rainbow.
         """
         light_map = self._music_map
         n = self.led_count
@@ -919,11 +931,27 @@ class Slots(Widget):
         p['hue'] = (p['hue'] + diff * min(1.0, self.PARTY_HUE_RATE * dt)) % 360
         hue = p['hue'] / 360.0
 
-        def hsv(h, v, sat=1.0):
-            r, g, b = colorsys.hsv_to_rgb(h % 1.0, sat, max(0.0, min(1.0, v)))
-            return (r * 255, g * 255, b * 255)
+        if palette:
+            def hsv(h, v, sat=1.0):
+                # The color wheel is split evenly between the palette colors.
+                # Each holds solid for most of its share; near the border the
+                # old color dims out and the next dims in, rather than mixing
+                # (orange + purple would make pink).
+                pos = (h % 1.0) * len(palette)
+                frac = pos - int(pos)
+                i = int(pos) % len(palette)
+                color = palette[i] if frac < 0.5 else palette[(i + 1) % len(palette)]
+                dip = min(1.0, abs(frac - 0.5) / 0.1)        # 0 right at the border
+                v = max(0.0, min(1.0, v)) * (0.15 + 0.85 * dip)
+                return tuple(c * v for c in color)
+            second_offset = 1.0 / len(palette)   # the next palette color
+        else:
+            def hsv(h, v, sat=1.0):
+                r, g, b = colorsys.hsv_to_rgb(h % 1.0, sat, max(0.0, min(1.0, v)))
+                return (r * 255, g * 255, b * 255)
+            second_offset = 0.42                 # contrasting, not quite opposite
 
-        main_h, second_h = hue, hue + 0.42   # a contrasting, not quite opposite, color
+        main_h, second_h = hue, hue + second_offset
 
         # --- beat, bar and drop timing
         beat_period = 60.0 / max(40.0, light_map.get('bpm', 120))
@@ -997,9 +1025,11 @@ class Slots(Widget):
             for i in range(n):
                 edge = min(i, n - 1 - i)
                 if edge < reach:
+                    # take over rather than add, so purple over orange stays
+                    # purple instead of turning pink
                     a = amt * (1 - edge / reach) ** 2
                     px = pixels[i]
-                    px[0] += c[0] * a; px[1] += c[1] * a; px[2] += c[2] * a
+                    px[0] += (c[0] - px[0]) * a; px[1] += (c[1] - px[1]) * a; px[2] += (c[2] - px[2]) * a
 
         # Drops: a white burst racing out from the middle, then confetti
         if drop_age < 0.6:
@@ -1021,7 +1051,12 @@ class Slots(Widget):
         for want, kind in ((rate * dt, 'white'), (confetti * dt, 'confetti')):
             count = int(want) + (1 if random.random() < want - int(want) else 0)
             for _ in range(count):
-                color = (self.PARTY_WHITE,) * 3 if kind == 'white' else hsv(random.random(), 1.0)
+                if kind == 'white':
+                    color = (self.PARTY_WHITE,) * 3
+                elif palette:
+                    color = random.choice(palette)
+                else:
+                    color = hsv(random.random(), 1.0)
                 sparks.append([random.randrange(n), now, color, 0.12 if kind == 'white' else 0.3])
         alive = []
         for pos, born, color, life in sparks:
@@ -1034,14 +1069,15 @@ class Slots(Widget):
 
         ledStrip.set_pixels([(min(255, int(r)), min(255, int(g)), min(255, int(b))) for r, g, b in pixels])
 
-    LED_MUSIC_STYLES = ['meter', 'party', 'ripples', 'pulse']
-    LED_MUSIC_STYLE_NAMES = {'meter': 'Meter', 'party': 'Party', 'ripples': 'Ripples', 'pulse': 'Pulse'}
+    LED_MUSIC_STYLES = ['meter', 'party', 'halloween_party', 'ripples', 'pulse']
+    LED_MUSIC_STYLE_NAMES = {'meter': 'Meter', 'party': 'Party', 'halloween_party': 'Halloween Party',
+                             'ripples': 'Ripples', 'pulse': 'Pulse'}
 
     def music_style_name(self):
         return self.LED_MUSIC_STYLE_NAMES.get(self.led_music_style, self.led_music_style)
 
     def cycle_music_style(self):
-        """K key: meter -> party -> ripples -> pulse -> meter. Returns a short
+        """K key: meter -> party -> halloween party -> ripples -> pulse. Returns a short
         description for the notification."""
         styles = self.LED_MUSIC_STYLES
         i = styles.index(self.led_music_style) if self.led_music_style in styles else -1
@@ -1677,7 +1713,7 @@ class GameScreen(Screen):
         ('S',     'Skip to the next song'),
         ('B',     'Next background picture'),
         ('L',     'Lights: follow the music / normal loop'),
-        ('K',     'Music light style: meter / party / ripples / pulse'),
+        ('K',     'Music light style: meter / party / halloween party / ...'),
         ('[  ]',  'Music lights earlier / later'),
         ('H',     'Show / hide this help'),
         ('Esc',   'Quit the game'),

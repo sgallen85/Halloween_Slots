@@ -114,7 +114,7 @@ and light settings.
 | S | Skip to the next song |
 | B | Next background picture |
 | L | LEDs: follow the music / normal loop |
-| K | Music light style: meter / party / ripples / pulse |
+| K | Music light style: meter / party / halloween party / ripples / pulse |
 | [ and ] | Shift the music lights earlier / later by 0.02 s |
 | H | Show / hide help |
 | Esc | Quit |
@@ -159,6 +159,8 @@ keys last until the game restarts. To keep one, copy the value into
   blocks one step per beat (switching direction each bar), cymbals
   sparkle, every bar flashes the ends, and drops set off a white burst and
   confetti.
+- **Halloween Party** (K again) is the same show using only orange,
+  purple and green (`led_halloween_colors`).
 - **After adding songs**, build their beat maps (on the Pi or a Mac with
   ffmpeg and numpy):
   ```bash
