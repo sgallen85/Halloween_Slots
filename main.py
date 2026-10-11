@@ -5,6 +5,7 @@ import random
 import os, sys, time, math, logging, argparse, glob, csv, atexit, json, bisect, colorsys, re
 
 import config
+from functools import partial
 
 # All game art and sound lives in assets/ next to this file.
 ASSETS = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'assets')
@@ -729,7 +730,7 @@ class Slots(Widget):
         self.win_volume = getattr(config, 'win_volume', 1.0)
         self.spin_sounds_volume = getattr(config, 'spin_sounds_volume', 0.8)
         self.music_volume = getattr(config, 'music_volume', self.spin_sounds_volume)
-        self._win_sound_event = None
+        self._win_sound_events = []   # [sound, clock event] scheduled but not started yet
         self._roll_ends_at = 0.0   # when the current spin sound finishes
         self._jackpot_sound = None # music waits while this is due or playing
         self._jackpot_show_seconds = 0.0   # jackpot animation length (its music's length)
@@ -843,11 +844,12 @@ class Slots(Widget):
                 logging.warning('sound failed to load (will play silently): {}'.format(fn))
             self.sounds[f] = snd
 
-        # Reel-stop sound: assets/audio/cash (any extension), one copy per
-        # reel so each stop rings out fully instead of cutting off the one
-        # before it. A reel-icon-<N> file, if present, still wins for that icon.
+        # Reel-stop sound: assets/audio/reel-stop (any extension), one copy
+        # per reel so each stop rings out fully instead of cutting off the
+        # one before it. A reel-icon-<N> file, if present, still wins for
+        # that icon.
         self.reel_stop_sounds = []
-        found = sorted(glob.glob(asset('audio', 'cash.*')))
+        found = sorted(glob.glob(asset('audio', 'reel-stop.*')))
         if found:
             for _ in range(3):
                 snd = SoundLoader.load(found[0])
@@ -1671,7 +1673,7 @@ class Slots(Widget):
         snd = self._jackpot_sound
         if snd is None:
             return False
-        if self._win_sound_event is not None or snd.state == 'play':
+        if self._win_sound_events or snd.state == 'play':
             return True        # still waiting to start, or playing
         self._jackpot_sound = None
         return False
@@ -1712,9 +1714,9 @@ class Slots(Widget):
         if self.state == 'idle':
             self.state = 'STATE_SPINNING'
             self.stopped = 0
-            if self._win_sound_event:   # a new spin before the last win sound started
-                self._win_sound_event.cancel()
-                self._win_sound_event = None
+            for _, event in self._win_sound_events:   # a new spin before the last result sounds started
+                event.cancel()
+            self._win_sound_events = []
             self._jackpot_sound = None
             snd = self.sounds.get('roll')
             self._roll_ends_at = time.time()
@@ -2024,47 +2026,59 @@ class Slots(Widget):
             self.state = 'idle'
 
     def play_result_sound(self, match_type, pumpkin_count):
-        """Prefers an icon-specific sound for doubles/triples and a
-        dedicated jackpot sound, falling back to the generic 'win' sound
-        for anything not recorded yet, so missing audio never breaks a spin.
-
-        Expected filenames in assets/audio/ or assets/audio/reels/ (any extension):
-          jackpot            - plays on 3 pumpkins
-          win-<icon name>    - e.g. win-vampire, win-pumpkin, win-skeleton;
-                                used for BOTH a double and a triple of that icon
-        Icon names come from SYMBOL_NAMES, lowercased.
+        """The sound(s) after a spin, from assets/audio/ or assets/audio/reels/
+        (any extension):
+          plain pay (no match, no pumpkins)  cash
+          pumpkin bonus (1-2 pumpkins)       win
+          double or three of a kind          win, then win-<icon> (e.g.
+                                             win-vampire) as soon as it ends
+          jackpot (3 pumpkins)               jackpot (falls back to win)
+        Missing files are skipped, so missing audio never breaks a spin.
+        They start win_sound_delay after the reels stop - except the jackpot,
+        which starts as soon as the spin sound ends.
         """
-        snd = None
         self._jackpot_show_seconds = 0.0
         if match_type == 'jackpot':
-            snd = self.sounds.get('jackpot')
+            sequence = [self.sounds.get('jackpot') or self.sounds.get('win')]
         elif match_type in ('double', '3 of a kind'):
             counts = Counter(self.landed)
             matched_symbol = max(counts, key=counts.get)
-            key = 'win-{}'.format(symbol_name(matched_symbol).lower())
-            snd = self.sounds.get(key)
+            icon_sound = self.sounds.get('win-{}'.format(symbol_name(matched_symbol).lower()))
+            sequence = [self.sounds.get('win'), icon_sound]
+        elif pumpkin_count >= 1:
+            sequence = [self.sounds.get('win')]
+        else:
+            sequence = [self.sounds.get('cash')]
+        sequence = [snd for snd in sequence if snd]
+        if not sequence:
+            return
 
-        if snd is None and (match_type != 'spin' or pumpkin_count >= 1):
-            snd = self.sounds.get('win')
+        if match_type == 'jackpot':
+            # Straight in as soon as the spin sound is done, and hold the
+            # background music until it has finished
+            delay = max(0.0, self._roll_ends_at - time.time())
+            self._jackpot_sound = sequence[0]
+            length = getattr(sequence[0], 'length', 0) or 0
+            if length > 0:
+                # the jackpot animation and lights run until the music ends
+                self._jackpot_show_seconds = delay + length
+        else:
+            # A short pause first, so it doesn't run into the end of the spin sound
+            delay = max(0.0, self.win_sound_delay)
 
-        if snd:
-            def play(dt):
-                self._win_sound_event = None
-                snd.volume = self.win_volume
-                snd.play()
-            if match_type == 'jackpot':
-                # Straight in as soon as the spin sound is done, and hold
-                # the background music until it has finished
-                delay = self._roll_ends_at - time.time()
-                self._jackpot_sound = snd
-                length = getattr(snd, 'length', 0) or 0
-                if length > 0:
-                    # the jackpot animation and lights run until the music ends
-                    self._jackpot_show_seconds = max(0.0, delay) + length
-            else:
-                # A short pause first, so it doesn't run into the end of the spin sound
-                delay = self.win_sound_delay
-            self._win_sound_event = Clock.schedule_once(play, max(0.0, delay))
+        # Back to back: each one starts when the one before it ends
+        for snd in sequence:
+            entry = [snd, None]
+            entry[1] = Clock.schedule_once(partial(self._play_result_sound, entry), delay)
+            self._win_sound_events.append(entry)
+            delay += max(0.0, getattr(snd, 'length', 0) or 0)
+
+    def _play_result_sound(self, entry, dt):
+        if entry in self._win_sound_events:
+            self._win_sound_events.remove(entry)
+        snd = entry[0]
+        snd.volume = self.win_volume
+        snd.play()
 
 class GameScreen(Screen):
 
