@@ -539,10 +539,17 @@ class Slots(Widget):
         #                         tail of the spin sound
         #   win_volume          - win/jackpot sounds, 0-1
         #   spin_sounds_volume  - the spin (roll) and reel-stop sounds, 0-1
+        #   music_volume        - background music, 0-1 (defaults to the same
+        #                         level as the spin sounds)
+        # The jackpot sound skips the delay: it starts the moment the spin
+        # sound finishes (or right away, if it already has).
         self.win_sound_delay = getattr(config, 'win_sound_delay', 2.0)
         self.win_volume = getattr(config, 'win_volume', 1.0)
         self.spin_sounds_volume = getattr(config, 'spin_sounds_volume', 0.8)
+        self.music_volume = getattr(config, 'music_volume', self.spin_sounds_volume)
         self._win_sound_event = None
+        self._roll_ends_at = 0.0   # when the current spin sound finishes
+        self._jackpot_sound = None # music waits while this is due or playing
         self.music_muted = False
         self.idle_music_timeout = getattr(config, 'idle_music_timeout', self.IDLE_MUSIC_TIMEOUT)
         self.music_playlist = []
@@ -1336,7 +1343,7 @@ class Slots(Widget):
         # apply the change immediately rather than waiting for the next
         # idle/spin transition.
         if self.state == 'idle':
-            self.music_sound.volume = 0 if self.music_muted else 1
+            self.music_sound.volume = 0 if self.music_muted else self.music_volume
         if self.music_muted:
             return "Music muted"
         return "Music ON - " + self.current_track_name()
@@ -1393,7 +1400,7 @@ class Slots(Widget):
             return
         self.music_sound = snd
         self._music_map = self._load_light_map(path)
-        snd.volume = 0 if self._music_should_be_silent() else 1
+        snd.volume = 0 if self._music_should_be_silent() else self.music_volume
         snd.play()
         # Kivy can't report playback position here, so the lights keep their
         # own clock from the moment the track starts. The track keeps playing
@@ -1422,16 +1429,27 @@ class Slots(Widget):
         self.music_index = (self.music_index + 1) % len(self.music_playlist)
         self._start_music_track()
 
+    def _jackpot_sound_running(self):
+        snd = self._jackpot_sound
+        if snd is None:
+            return False
+        if self._win_sound_event is not None or snd.state == 'play':
+            return True        # still waiting to start, or playing
+        self._jackpot_sound = None
+        return False
+
     def _update_background_music(self):
         if not self.music_enabled or not self.music_playlist or self.state != 'idle':
             return
+        if self._jackpot_sound_running():
+            return   # let the jackpot sound finish before the music comes back
         if time.time() - self.last_activity_time < self.idle_music_timeout:
             return
         if self.music_sound is None:
             self._start_music_track()
         elif self.music_sound.volume == 0:
             if not self.music_muted:
-                self.music_sound.volume = 1  # was muted during a spin - it never stopped, just unmute it
+                self.music_sound.volume = self.music_volume  # was muted during a spin - it never stopped, just unmute it
         elif self.music_sound.state != 'play':
             self._advance_music_track()  # previous track finished naturally
 
@@ -1459,10 +1477,13 @@ class Slots(Widget):
             if self._win_sound_event:   # a new spin before the last win sound started
                 self._win_sound_event.cancel()
                 self._win_sound_event = None
+            self._jackpot_sound = None
             snd = self.sounds.get('roll')
+            self._roll_ends_at = time.time()
             if snd:
                 snd.volume = self.spin_sounds_volume
                 snd.play()
+                self._roll_ends_at += max(0.0, getattr(snd, 'length', 0) or 0)
             self.start_time = time.time()
             self.last_time = time.time()
             self.landed = []
@@ -1753,8 +1774,15 @@ class Slots(Widget):
                 self._win_sound_event = None
                 snd.volume = self.win_volume
                 snd.play()
-            # A short pause first, so it doesn't run into the end of the spin sound
-            self._win_sound_event = Clock.schedule_once(play, max(0.0, self.win_sound_delay))
+            if match_type == 'jackpot':
+                # Straight in as soon as the spin sound is done, and hold
+                # the background music until it has finished
+                delay = self._roll_ends_at - time.time()
+                self._jackpot_sound = snd
+            else:
+                # A short pause first, so it doesn't run into the end of the spin sound
+                delay = self.win_sound_delay
+            self._win_sound_event = Clock.schedule_once(play, max(0.0, delay))
 
 class GameScreen(Screen):
 
