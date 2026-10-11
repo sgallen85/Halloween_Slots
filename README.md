@@ -121,7 +121,7 @@ and light settings.
 | P | Music: in order / shuffle |
 | B | Next background picture |
 | L | LEDs: follow the music / normal loop |
-| K | Music light style: meter / party / halloween party / ripples / pulse |
+| K | Music light style: meter / halloween meter / party / halloween party / ripples / pulse |
 | [ and ] | Shift the music lights earlier / later by 0.02 s |
 | H | Show / hide help |
 | Esc | Quit |
@@ -163,7 +163,11 @@ keys last until the game restarts. To keep one, copy the value into
   next one every 16 beats. Press **L** to switch back to the normal loop,
   and **K** to try the other styles. Set the starting style with
   `led_music_style` in `config.py`.
-- **Party style** (K) is a full light show built from each song's map:
+- **Halloween Meter** (K) is the meter using only orange, purple and
+  green (`led_halloween_colors`). The bar is one solid color with peak
+  dots in the next color, and color changes dim out and back in, so no
+  in-between shades show up.
+- **Party style** (K again) is a full light show built from each song's map:
   colors follow the harmony (chord changes shift the color), quiet parts
   drift in slow waves, grooves bounce the meter, choruses chase color
   blocks one step per beat (switching direction each bar), cymbals
