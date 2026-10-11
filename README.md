@@ -117,6 +117,7 @@ and light settings.
 | Space | Spin (same as the button) |
 | M | Music on / mute |
 | S | Skip to the next song |
+| Left / Right arrows | Song back / forward 15 seconds |
 | P | Music: in order / shuffle |
 | B | Next background picture |
 | L | LEDs: follow the music / normal loop |

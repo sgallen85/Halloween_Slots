@@ -2,7 +2,7 @@
 from __future__ import division
 
 import random
-import os, sys, time, math, logging, argparse, glob, csv, atexit, json, bisect, colorsys, re
+import os, sys, time, math, logging, argparse, glob, csv, atexit, json, bisect, colorsys, re, ctypes
 
 import config
 from functools import partial
@@ -1624,11 +1624,78 @@ class Slots(Widget):
         if self.music_sound is not None and self.music_sound.state == 'play':
             self.music_sound.volume = 0
 
+    @staticmethod
+    def _open_music(path):
+        """Background songs play through SDL's streaming music player
+        (MusicSDL2): it starts instantly instead of decoding the whole song
+        into memory first (several seconds on a Pi), and it can seek.
+        Falls back to the regular sound loader if that isn't available."""
+        try:
+            from kivy.core.audio.audio_sdl2 import MusicSDL2
+            snd = MusicSDL2(source=path)
+            snd.load()
+            return snd
+        except Exception as e:
+            logging.info('streaming music player unavailable ({}), using SoundLoader'.format(e))
+            return SoundLoader.load(path)
+
+    _mixer = None   # SDL_mixer, opened on first seek
+
+    @classmethod
+    def _sdl_mixer(cls):
+        """The SDL_mixer library Kivy is using, for Mix_SetMusicPosition
+        (Kivy's own MusicSDL2.seek does nothing). None if it can't be found
+        (e.g. not on Linux)."""
+        if cls._mixer is None:
+            cls._mixer = False
+            try:
+                with open('/proc/self/maps') as f:
+                    libs = sorted({line.split()[-1] for line in f if 'sdl2_mixer' in line.lower()})
+                if libs:
+                    lib = ctypes.CDLL(libs[0])
+                    lib.Mix_SetMusicPosition.argtypes = [ctypes.c_double]
+                    lib.Mix_SetMusicPosition.restype = ctypes.c_int
+                    cls._mixer = lib
+            except Exception as e:
+                logging.info('song seeking unavailable: {}'.format(e))
+        return cls._mixer or None
+
+    def music_position(self):
+        """Seconds into the current song, from our own clock (Kivy can't
+        report it). The song keeps playing muted through spins, so this
+        stays in step."""
+        return max(0.0, time.time() - self._music_started_at)
+
+    def seek_music(self, seconds):
+        """Left/right arrow keys: jump the current song by `seconds`.
+        Returns a notification message."""
+        snd = self.music_sound
+        if snd is None or snd.state != 'play':
+            return "No song playing"
+        mixer = self._sdl_mixer()
+        if mixer is None:
+            return "Seeking isn't supported here"
+        target = self.music_position() + seconds
+        length = (self._music_map or {}).get('duration') or (getattr(snd, 'length', 0) or 0)
+        if length and target >= length - 1:
+            return self.skip_music_track()          # past the end: next song
+        target = max(0.0, target)
+        if mixer.Mix_SetMusicPosition(target) != 0:
+            return "Couldn't seek this song"
+        self._music_started_at = time.time() - target   # keeps the music lights in step
+        self._meter = None
+        stamp = lambda t: '{}:{:02d}'.format(int(t) // 60, int(t) % 60)
+        total = ' / ' + stamp(length) if length else ''
+        return "{} {}{}  ({}{}s)".format('>>' if seconds > 0 else '<<', stamp(target), total,
+                                         '+' if seconds > 0 else '-', abs(int(seconds)))
+
     def _start_music_track(self):
         if not self.music_playlist:
             return
         path = self.music_playlist[self.music_index]
-        snd = SoundLoader.load(path)
+        if self.music_sound is not None:
+            self.music_sound.stop()                 # free the previous song
+        snd = self._open_music(path)
         if snd is None:
             logging.warning('background music failed to load: {}'.format(path))
             self._advance_music_track()
@@ -2094,6 +2161,7 @@ class GameScreen(Screen):
         ('Space', 'Spin (same as the big button)'),
         ('M',     'Music on / mute'),
         ('S',     'Skip to the next song'),
+        ('<  >',  'Song back / forward 15 seconds'),
         ('P',     'Music: in order / shuffle'),
         ('B',     'Next background picture'),
         ('L',     'Lights: follow the music / normal loop'),
@@ -2114,6 +2182,8 @@ class GameScreen(Screen):
             self.show_status(self.slots.toggle_music_mute())
         elif key == "s":
             self.show_status(self.slots.skip_music_track())
+        elif key in ("left", "right"):
+            self.show_status(self.slots.seek_music(15 if key == "right" else -15))
         elif key == "p":
             self.show_status(self.slots.toggle_music_playback())
         elif key == "b":
