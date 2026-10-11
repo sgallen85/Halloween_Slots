@@ -5,8 +5,14 @@ flash along with the music while the game is idle.
 
 The game can't analyze audio while it plays (Kivy's audio player doesn't
 expose the sound data, or even a reliable playback position), so the work is
-done ahead of time here: each track is decoded, its bass energy measured 50
-times a second, and its beats found. The result is saved next to the track:
+done ahead of time here. Each track is decoded and measured:
+  - bass and treble energy, 50 times a second
+  - beats (with how hard each one hits) and which beat starts each bar
+  - harmony, as a color that drifts with the chords (circle of fifths, so
+    related chords get neighbouring colors)
+  - intensity over time (quiet verse vs. big chorus) and "drops", where
+    the song suddenly kicks in
+The result is saved next to the track:
 
     assets/audio/background/3_time_warp.mp3
     assets/audio/background/3_time_warp.lights.json   <- this
@@ -37,6 +43,17 @@ SAMPLE_RATE = 11025   # plenty for bass and beats, and fast to process
 FPS = 50              # map frames per second
 WINDOW = 1024         # FFT window (~93 ms)
 EXTENSIONS = ('.mp3', '.ogg', '.wav')
+
+
+MAP_VERSION = 3   # bump when maps gain new data, so old ones get rebuilt
+
+
+def map_version(path):
+    try:
+        with open(path) as f:
+            return json.load(f).get('version', 1)
+    except Exception:
+        return 0
 
 
 def map_path(track_path):
@@ -133,6 +150,82 @@ def track_beats(onsets, period):
     return beats[::-1]
 
 
+def smooth(x, seconds):
+    """Moving average over `seconds`."""
+    n = max(1, int(seconds * FPS))
+    return np.convolve(x, np.ones(n) / n, mode='same')
+
+
+def normalize(x, lo_pct=10, hi_pct=98):
+    lo, hi = np.percentile(x, lo_pct), np.percentile(x, hi_pct)
+    return np.clip((x - lo) / max(hi - lo, 1e-9), 0, 1)
+
+
+def treble_energy(spec):
+    """0-1 hi-hat / cymbal level per frame, quick to rise and fall."""
+    db = 10 * np.log10(np.sum(band(spec, 2500, 5500) ** 2, axis=1) + 1e-9)
+    return normalize(db)
+
+
+def harmony_hue(spec):
+    """A color (hue, 0-360) per frame that follows the harmony. Each FFT bin
+    between 110 Hz and 2 kHz votes for its musical note; notes are placed
+    around the circle of fifths, so the average direction drifts smoothly as
+    chords change, and closely related chords land on nearby colors."""
+    freqs = np.fft.rfftfreq(WINDOW, 1.0 / SAMPLE_RATE)
+    sel = (freqs >= 110) & (freqs < 2000)
+    pitch_class = (np.round(12 * np.log2(freqs[sel] / 440.0)).astype(int) + 9) % 12
+    angle = 2 * np.pi * ((pitch_class * 7) % 12) / 12.0     # circle of fifths
+    weights = spec[:, sel] ** 2
+    z = (weights * np.exp(1j * angle)[None, :]).sum(axis=1)
+    z = smooth(z.real, 8.0) + 1j * smooth(z.imag, 8.0)     # follow the progression, not each chord
+    return (np.degrees(np.angle(z)) + 360) % 360
+
+
+def loudness(samples, n_frames):
+    """0-1 smoothed loudness per frame."""
+    hop = SAMPLE_RATE / FPS
+    starts = (np.arange(n_frames) * hop).astype(int)
+    win = int(hop)
+    rms = np.array([np.sqrt(np.mean(samples[s:s + win] ** 2) + 1e-12) for s in starts])
+    return normalize(smooth(20 * np.log10(rms + 1e-9), 3.0), 5, 95)
+
+
+def intensity_curve(loud, treble, onsets):
+    """0-1 how big the song feels at each moment. Loudness alone can't tell
+    a verse from a chorus in a loud modern mix, so cymbals (treble) and drum
+    activity count too. Ranked within the song, so every track spends some
+    time calm, some grooving and some at its peak."""
+    busy = normalize(smooth(onsets, 3.0))
+    feel = smooth(0.5 * loud + 0.25 * smooth(treble, 3.0) + 0.25 * busy, 2.0)
+    ranks = np.argsort(np.argsort(feel))
+    return ranks / max(1, len(ranks) - 1)
+
+
+def find_drops(loud):
+    """Times where the song jumps from quieter to much louder (skipping the
+    first few seconds, where every song 'jumps' from silence)."""
+    after = smooth(loud, 1.0)
+    before = np.concatenate([np.zeros(2 * FPS), smooth(loud, 4.0)[:-2 * FPS]])
+    jump = after - before
+    drops, last = [], -1e9
+    for i in range(6 * FPS, len(jump)):
+        if jump[i] > 0.3 and after[i] > 0.6 and i - last > 15 * FPS:
+            # step forward to the steepest point of the rise
+            j = i + int(np.argmax(np.diff(after[i:i + FPS]))) if i + FPS < len(after) else i
+            drops.append(round(j / FPS, 2))
+            last = i
+    return drops
+
+
+def bar_phase(strengths):
+    """Which beat (0-3) of each group of four starts the bar: the phase whose
+    beats hit hardest on average."""
+    if len(strengths) < 8:
+        return 0
+    return int(np.argmax([strengths[p::4].mean() for p in range(4)]))
+
+
 def build_map(path):
     samples = decode(path)
     if len(samples) < SAMPLE_RATE:
@@ -145,13 +238,24 @@ def build_map(path):
     # How hard each beat hits (0-1), so quiet passages get gentle flashes
     strengths = np.array([onsets[max(0, b - 2):b + 3].max() for b in beats])
     strengths = np.clip(strengths / (np.percentile(strengths, 90) + 1e-9), 0, 1)
+    treble = treble_energy(spec)
+    hue = harmony_hue(spec)
+    loud = loudness(samples, len(spec))
+    intensity = intensity_curve(loud, treble, onsets)
+    slow = FPS // 10   # the slow-changing curves are stored at 10 per second
     return {
-        'version': 1,
+        'version': MAP_VERSION,
         'fps': FPS,
         'duration': round(len(samples) / SAMPLE_RATE, 2),
         'bpm': round(60.0 * FPS / period, 1),
         'energy': [int(round(v * 100)) for v in energy],
         'beats': [[round(b / FPS, 3), int(round(s * 100))] for b, s in zip(beats, strengths)],
+        'bar_phase': bar_phase(strengths),
+        'treble': [int(round(v * 100)) for v in treble],
+        'slow_fps': FPS // slow,
+        'hue': [int(round(v)) for v in hue[::slow]],
+        'intensity': [int(round(v * 100)) for v in intensity[::slow]],
+        'drops': find_drops(loud),
     }
 
 
@@ -169,7 +273,8 @@ def main():
     for path in tracks:
         out = map_path(path)
         name = os.path.relpath(path, here)
-        if not args.force and os.path.exists(out) and os.path.getmtime(out) >= os.path.getmtime(path):
+        if not args.force and os.path.exists(out) and os.path.getmtime(out) >= os.path.getmtime(path) \
+                and map_version(out) >= MAP_VERSION:
             print('up to date  {}'.format(name))
             continue
         try:
@@ -179,7 +284,8 @@ def main():
             continue
         with open(out, 'w') as f:
             json.dump(light_map, f, separators=(',', ':'))
-        print('mapped      {}  ({} BPM, {} beats)'.format(name, light_map['bpm'], len(light_map['beats'])))
+        print('mapped      {}  ({} BPM, {} beats, {} drops)'.format(
+            name, light_map['bpm'], len(light_map['beats']), len(light_map['drops'])))
 
 
 if __name__ == '__main__':

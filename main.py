@@ -2,7 +2,7 @@
 from __future__ import division
 
 import random
-import os, sys, time, math, logging, argparse, glob, csv, atexit, json, bisect
+import os, sys, time, math, logging, argparse, glob, csv, atexit, json, bisect, colorsys
 
 import config
 
@@ -61,7 +61,7 @@ except ImportError as e:
   import nullHardware as Hardware
 
 from collections import Counter
-from kivy.animation import Animation
+from kivy.animation import Animation, AnimationTransition
 
 from kivy.app import App
 from kivy.uix.screenmanager import Screen
@@ -71,7 +71,6 @@ from kivy.core.audio import SoundLoader
 from kivy.lang import Builder
 from kivy.core.image import Image
 from kivy.core.window import Window
-from kivy.uix.image import Image as ImageWidget
 from kivy.uix.widget import Widget
 from kivy.graphics import *
 from kivy.utils import get_color_from_hex
@@ -301,13 +300,19 @@ class Strip(Rectangle):
         return (self.tex_coords[0], self.tex_coords[1])
 
 
-class JackpotCelebration(FloatLayout):
+class JackpotCelebration(Widget):
     """Full-screen overlay of icons falling from above the screen under
     gravity, bouncing softly off the bottom, and drifting off the left/right
     edges to disappear - the classic 'cascade' win-screen effect, built from
     scratch using this game's own icon art. All the physics knobs below can
     be overridden from config.py (see the matching config_* names in
-    __init__) without touching this class."""
+    __init__) without touching this class.
+
+    The icons are drawn as plain textured rectangles on this widget's canvas
+    (one shared texture per icon image) rather than as 50 Image widgets:
+    moving a rectangle is just a number change, where moving a widget sets
+    off property events and layout passes - slow enough on a Pi to make the
+    animation stutter, and creating the widgets froze the start of the win."""
 
     DURATION = 10.0
     ICON_COUNT = 50
@@ -323,7 +328,8 @@ class JackpotCelebration(FloatLayout):
         self.size = (1920, 1080)
         self.pos = (0, 0)
         self.opacity = 0
-        self._bodies = []  # list of [widget, vx, vy]
+        self._bodies = []  # list of [Rectangle, x, y, vx, vy]
+        self._textures = {}  # icon path -> texture, loaded once
         self._update_ev = None
         self._stop_ev = None
 
@@ -341,49 +347,51 @@ class JackpotCelebration(FloatLayout):
             return
         size = icon_size if icon_size is not None else self.icon_size
         n = count if count is not None else self.icon_count
-        for i in range(n):
-            path = random.choice(icon_paths)
-            img = ImageWidget(source=path, size=(size, size),
-                               size_hint=(None, None), allow_stretch=True, keep_ratio=True)
-            # Start above the screen (staggered height = staggered fall
-            # timing) at a random x. Icons spawned on the left half drift
-            # right as they fall, and vice versa, so they cross the screen
-            # rather than drifting randomly.
-            spawn_x = random.uniform(0, 1920 - size)
-            direction = 1 if spawn_x < (1920 - size) / 2 else -1
-            speed = random.uniform(*self.drift_speed_range)
-            vx = direction * speed
-            vy = 0
-            img.pos = (spawn_x, 1080 + random.uniform(*self.spawn_height_range))
-            self.add_widget(img)
-            self._bodies.append([img, vx, vy])
+        self.icon_size_now = size
+        with self.canvas:
+            Color(1, 1, 1, 1)
+            for i in range(n):
+                path = random.choice(icon_paths)
+                texture = self._textures.get(path)
+                if texture is None:
+                    texture = self._textures[path] = Image(path).texture
+                # Start above the screen (staggered height = staggered fall
+                # timing) at a random x. Icons spawned on the left half drift
+                # right as they fall, and vice versa, so they cross the screen
+                # rather than drifting randomly.
+                x = random.uniform(0, 1920 - size)
+                y = 1080 + random.uniform(*self.spawn_height_range)
+                direction = 1 if x < (1920 - size) / 2 else -1
+                vx = direction * random.uniform(*self.drift_speed_range)
+                rect = Rectangle(texture=texture, pos=(x, y), size=(size, size))
+                self._bodies.append([rect, x, y, vx, 0.0])
         self.opacity = 1
         self._update_ev = Clock.schedule_interval(self._update, 0)
         self._stop_ev = Clock.schedule_once(self.stop, self.duration)
 
     def _update(self, dt):
-        size = self.icon_size
+        size = self.icon_size_now
         margin = size + 50  # fully off-screen before we despawn
+        gravity, restitution = self.gravity, self.bottom_restitution
         surviving = []
         for body in self._bodies:
-            img, vx, vy = body
-            vy += self.gravity * dt
-            x, y = img.pos
+            rect, x, y, vx, vy = body
+            vy += gravity * dt
             x += vx * dt
             y += vy * dt
 
             if y <= 0:
                 y = 0
-                vy = abs(vy) * self.bottom_restitution
+                vy = abs(vy) * restitution
 
             # No side walls - icons that drift past either edge just keep
             # going and get removed once they're fully out of view.
             if x + size < -margin or x > 1920 + margin:
-                self.remove_widget(img)
+                self.canvas.remove(rect)
                 continue
 
-            img.pos = (x, y)
-            body[1], body[2] = vx, vy
+            rect.pos = (x, y)
+            body[1], body[2], body[4] = x, y, vy
             surviving.append(body)
         self._bodies = surviving
 
@@ -394,7 +402,7 @@ class JackpotCelebration(FloatLayout):
         if self._stop_ev:
             self._stop_ev.cancel()
             self._stop_ev = None
-        self.clear_widgets()
+        self.canvas.clear()
         self._bodies = []
         self.opacity = 0
 
@@ -540,6 +548,11 @@ class Slots(Widget):
         #   led_music_beats_per_color - beats before moving to the next color
         #   led_music_style  - 'meter'   (default) a level meter bouncing out
         #                                  from the middle with peak dots
+        #                      'party'   a full light show that follows the
+        #                                  song's harmony, sections, bars,
+        #                                  cymbals and drops
+        #                      'halloween_party'  the party show in Halloween
+        #                                  colors only (led_halloween_colors)
         #                      'ripples' each beat ripples out from the middle
         #                      'pulse'   the whole strip flashes on each beat
         #   led_music_meter_dim - ('meter' only) bar brightness between beats,
@@ -558,7 +571,13 @@ class Slots(Widget):
         self.led_music_beats_per_color = getattr(config, 'led_music_beats_per_color', 16)
         self.led_music_style = getattr(config, 'led_music_style', 'meter')
         self.led_music_meter_dim = getattr(config, 'led_music_meter_dim', 0.45)
+        self.led_halloween_colors = getattr(config, 'led_halloween_colors', [
+            (255, 70, 0),     # orange
+            (130, 0, 255),    # purple
+            (60, 255, 0),     # green
+        ])
         self._meter = None            # level meter state, reset per track
+        self._party = None            # party show state, reset per track
         self.led_music_accent_threshold = getattr(config, 'led_music_accent_threshold', 95)
         self.led_music_offset = getattr(config, 'led_music_offset', 0.04)
         self._music_started_at = 0.0
@@ -744,7 +763,13 @@ class Slots(Widget):
             base = lerp(colors[(phrase - 1) % len(colors)], base, mix)
             accent = lerp(colors[phrase % len(colors)], accent, mix)
 
-        if self.led_music_style == 'meter':
+        if self.led_music_style == 'party' and 'intensity' in light_map:
+            self._led_party_frame(t, e, k)
+            return
+        if self.led_music_style == 'halloween_party' and 'intensity' in light_map:
+            self._led_party_frame(t, e, k, palette=self.led_halloween_colors)
+            return
+        if self.led_music_style in ('meter', 'party', 'halloween_party'):   # old maps fall back to meter
             self._led_meter_frame(t, e, k, base, accent)
             return
 
@@ -803,6 +828,37 @@ class Slots(Widget):
         the accent color at the tips. Brightness pulses with the beat on
         top of the movement (see led_music_meter_dim)."""
         n = self.led_count
+        level, peak, flash = self._meter_step(t, e, k)
+
+        # Brightness pulses with the music too: the bar glows at a medium
+        # level between beats (a bit brighter with more bass) and flares on
+        # each beat; the strip outside the bar flickers with the beat.
+        bar_bright = min(1.0, self.led_music_meter_dim + 0.15 * e
+                         + (1.0 - self.led_music_meter_dim) * flash)
+        outside_bright = 0.03 + 0.22 * flash
+        half = n / 2.0
+        center = (n - 1) / 2.0
+        bar = level * half
+        peak = peak * half
+        pixels = []
+        for i in range(n):
+            d = abs(i - center) + 0.5          # distance from the middle, in LEDs
+            frac = min(1.0, d / half)
+            # base color in the middle, blending to the accent at the tips
+            mix = frac ** 1.5
+            color = [b + (a - b) * mix for b, a in zip(base, accent)]
+            inside = max(0.0, min(1.0, bar - d + 1.0))   # soft edge on the bar
+            level = outside_bright + (bar_bright - outside_bright) * inside
+            if abs(d - peak) < 1.0 and peak > 1.0:       # peak dot
+                level = 1.0
+                color = [min(255, c * 0.6 + 100) for c in accent]  # brighter, whiter
+            pixels.append((int(color[0] * level), int(color[1] * level), int(color[2] * level)))
+        ledStrip.set_pixels(pixels)
+
+    def _meter_step(self, t, e, k):
+        """Advances the level meter's bounce one frame. Returns (level,
+        peak, flash): bar and peak-dot reach (0-1 of half the strip) and the
+        current beat's brightness flare (0-1)."""
         now = time.time()
         m = self._meter
         if m is None:
@@ -836,44 +892,206 @@ class Slots(Widget):
             m['peak_vel'] += self.LED_METER_PEAK_GRAVITY * dt
             m['peak'] = max(m['level'], m['peak'] - m['peak_vel'] * dt)
 
-        # Brightness pulses with the music too: the bar glows at a medium
-        # level between beats (a bit brighter with more bass) and flares on
-        # each beat; the strip outside the bar flickers with the beat.
-        bar_bright = min(1.0, self.led_music_meter_dim + 0.15 * e
-                         + (1.0 - self.led_music_meter_dim) * flash)
-        outside_bright = 0.03 + 0.22 * flash
-        half = n / 2.0
+        return m['level'], m['peak'], flash
+
+    # Party show tuning
+    PARTY_HUE_RATE = 0.6          # how quickly colors follow the harmony (per second)
+    PARTY_SEGMENT = 6             # LEDs per color block in the chorus chase
+    PARTY_WHITE = 210             # cap on white flashes (full white on every LED draws a lot of power)
+
+    def _led_party_frame(self, t, e, k, palette=None):
+        """The party show. Reads the whole light map, not just the beat:
+          color      follows the song's harmony (see make_light_maps.py) -
+                     the main color, plus a contrasting second color
+          intensity  blends three moods as the song builds and relaxes:
+                       calm   slow waves of color drifting across the strip
+                       groove the bouncing meter
+                       peak   blocks of both colors chasing along the strip,
+                              one step per beat, changing direction each bar,
+                              with a white flash on strong bar-start beats
+          bars       a flash at both ends of the strip on every bar
+          treble     white sparkles on hi-hats and cymbals
+          drops      a white burst from the middle, then colored confetti
+        With a `palette` (the Halloween Party style), the harmony picks from
+        those colors instead of the full rainbow.
+        """
+        light_map = self._music_map
+        n = self.led_count
+        now = time.time()
+        p = self._party
+        if p is None:
+            p = self._party = {'hue': None, 'last': now, 'sparks': []}
+        dt = min(0.1, max(0.0, now - p['last']))
+        p['last'] = now
+
+        # --- read the map at time t
+        fps, slow_fps = light_map['fps'], light_map['slow_fps']
+        idx = int(t * fps)
+        treble = light_map['treble'][idx] / 100.0 if 0 <= idx < len(light_map['treble']) else 0.0
+        sidx = min(max(0, int(t * slow_fps)), len(light_map['intensity']) - 1)
+        intensity = light_map['intensity'][sidx] / 100.0
+        target_hue = light_map['hue'][sidx]
+
+        # Ease toward the harmony's color along the shorter way round the wheel
+        if p['hue'] is None:
+            p['hue'] = target_hue
+        diff = (target_hue - p['hue'] + 540) % 360 - 180
+        p['hue'] = (p['hue'] + diff * min(1.0, self.PARTY_HUE_RATE * dt)) % 360
+        hue = p['hue'] / 360.0
+
+        if palette:
+            def hsv(h, v, sat=1.0):
+                # The color wheel is split evenly between the palette colors.
+                # Each holds solid for most of its share; near the border the
+                # old color dims out and the next dims in, rather than mixing
+                # (orange + purple would make pink).
+                pos = (h % 1.0) * len(palette)
+                frac = pos - int(pos)
+                i = int(pos) % len(palette)
+                color = palette[i] if frac < 0.5 else palette[(i + 1) % len(palette)]
+                dip = min(1.0, abs(frac - 0.5) / 0.1)        # 0 right at the border
+                v = max(0.0, min(1.0, v)) * (0.15 + 0.85 * dip)
+                return tuple(c * v for c in color)
+            second_offset = 1.0 / len(palette)   # the next palette color
+        else:
+            def hsv(h, v, sat=1.0):
+                r, g, b = colorsys.hsv_to_rgb(h % 1.0, sat, max(0.0, min(1.0, v)))
+                return (r * 255, g * 255, b * 255)
+            second_offset = 0.42                 # contrasting, not quite opposite
+
+        main_h, second_h = hue, hue + second_offset
+
+        # --- beat, bar and drop timing
+        beat_period = 60.0 / max(40.0, light_map.get('bpm', 120))
+        age, strength, downbeat, bar = 99.0, 0, False, 0
+        if k >= 0:
+            beat_time, strength = light_map['beats'][k]
+            age = t - beat_time
+            beat_in_bar = (k - light_map.get('bar_phase', 0)) % 4
+            downbeat = beat_in_bar == 0
+            bar = (k - light_map.get('bar_phase', 0)) // 4
+        flash = (0.3 + 0.7 * strength / 100.0) * math.exp(-age / 0.2)
+        drops = light_map.get('drops', [])
+        di = bisect.bisect_right(drops, t) - 1
+        drop_age = t - drops[di] if di >= 0 else 99.0
+
+        # --- mood weights: calm -> groove -> peak, blended so nothing snaps
+        def ramp(x, a, b):
+            x = max(0.0, min(1.0, (x - a) / (b - a)))
+            return x * x * (3 - 2 * x)
+        w_peak = ramp(intensity, 0.62, 0.8)
+        w_calm = 1.0 - ramp(intensity, 0.22, 0.4)
+        w_groove = max(0.0, 1.0 - w_peak - w_calm)
+
+        meter_level, meter_peak, _ = self._meter_step(t, e, k)   # keep the meter bouncing
         center = (n - 1) / 2.0
-        bar = m['level'] * half
-        peak = m['peak'] * half
+        half = n / 2.0
+
+        # Chorus chase: moves one block per beat (snappy ease), reverses each bar
+        step = 0.0
+        if k >= 0:
+            step = k + min(1.0, age / (beat_period * 0.35)) ** 0.5
+        chase_pos = step * self.PARTY_SEGMENT
+        chase_dir = 1 if bar % 2 == 0 else -1
+        chase_white = 0.0
+        if downbeat and strength >= 60:
+            chase_white = 0.7 * math.exp(-age / 0.07)
+
         pixels = []
         for i in range(n):
-            d = abs(i - center) + 0.5          # distance from the middle, in LEDs
-            frac = min(1.0, d / half)
-            # base color in the middle, blending to the accent at the tips
-            mix = frac ** 1.5
-            color = [b + (a - b) * mix for b, a in zip(base, accent)]
-            inside = max(0.0, min(1.0, bar - d + 1.0))   # soft edge on the bar
-            level = outside_bright + (bar_bright - outside_bright) * inside
-            if abs(d - peak) < 1.0 and peak > 1.0:       # peak dot
-                level = 1.0
-                color = [min(255, c * 0.6 + 100) for c in accent]  # brighter, whiter
-            pixels.append((int(color[0] * level), int(color[1] * level), int(color[2] * level)))
-        ledStrip.set_pixels(pixels)
+            d = abs(i - center) + 0.5
+            r = g = b = 0.0
 
-    LED_MUSIC_STYLES = ['meter', 'ripples', 'pulse']
-    LED_MUSIC_STYLE_NAMES = {'meter': 'Meter', 'ripples': 'Ripples', 'pulse': 'Pulse'}
+            if w_calm > 0.01:    # slow drifting waves, swelling with the bass
+                w1 = 0.5 + 0.5 * math.sin(i * 0.11 - t * 1.3)
+                w2 = 0.5 + 0.5 * math.sin(i * 0.07 + t * 0.7)
+                c = hsv(main_h + 0.08 * w2, 0.08 + 0.3 * w1 * (0.5 + e) + 0.25 * flash)
+                r += c[0] * w_calm; g += c[1] * w_calm; b += c[2] * w_calm
+
+            if w_groove > 0.01:  # the bouncing meter, main color in the middle
+                inside = max(0.0, min(1.0, meter_level * half - d + 1.0))
+                mix = min(1.0, d / half) ** 1.5
+                v = 0.04 + (0.35 + 0.65 * flash) * inside
+                if abs(d - meter_peak * half) < 1.0 and meter_peak > 0.05:
+                    v = 1.0
+                c = hsv(main_h + (second_h - main_h) * mix, v)
+                r += c[0] * w_groove; g += c[1] * w_groove; b += c[2] * w_groove
+
+            if w_peak > 0.01:    # color blocks chasing to the beat
+                seg = int((i * chase_dir + chase_pos) // self.PARTY_SEGMENT)
+                c = hsv(main_h if seg % 2 == 0 else second_h, 0.35 + 0.35 * e + 0.3 * flash)
+                wv = chase_white * self.PARTY_WHITE
+                r += (c[0] + wv) * w_peak; g += (c[1] + wv) * w_peak; b += (c[2] + wv) * w_peak
+
+            pixels.append([r, g, b])
+
+        # Bar starts: both ends flash the second color, fading toward the middle
+        if downbeat and age < 0.35:
+            amt = math.exp(-age / 0.12)
+            c = hsv(second_h, 1.0)
+            reach = n * 0.18
+            for i in range(n):
+                edge = min(i, n - 1 - i)
+                if edge < reach:
+                    # take over rather than add, so purple over orange stays
+                    # purple instead of turning pink
+                    a = amt * (1 - edge / reach) ** 2
+                    px = pixels[i]
+                    px[0] += (c[0] - px[0]) * a; px[1] += (c[1] - px[1]) * a; px[2] += (c[2] - px[2]) * a
+
+        # Drops: a white burst racing out from the middle, then confetti
+        if drop_age < 0.6:
+            radius = drop_age / 0.35 * half
+            fill = 0.5 * (1 - drop_age / 0.6)
+            for i in range(n):
+                d = abs(i - center)
+                ring = max(0.0, 1 - abs(d - radius) / 5.0) * (1 - drop_age / 0.6)
+                wv = min(1.0, ring + fill) * self.PARTY_WHITE
+                px = pixels[i]
+                px[0] += wv; px[1] += wv; px[2] += wv
+
+        # Sparkles: hi-hats and cymbals (white), confetti after a drop (any color)
+        sparks = p['sparks']
+        rate = 50.0 * treble ** 2 * (0.4 + intensity)          # per second
+        confetti = 0.0
+        if 0.4 < drop_age < 4.0:
+            confetti = 120.0 * (1 - (drop_age - 0.4) / 3.6)
+        for want, kind in ((rate * dt, 'white'), (confetti * dt, 'confetti')):
+            count = int(want) + (1 if random.random() < want - int(want) else 0)
+            for _ in range(count):
+                if kind == 'white':
+                    color = (self.PARTY_WHITE,) * 3
+                elif palette:
+                    color = random.choice(palette)
+                else:
+                    color = hsv(random.random(), 1.0)
+                sparks.append([random.randrange(n), now, color, 0.12 if kind == 'white' else 0.3])
+        alive = []
+        for pos, born, color, life in sparks:
+            a = 1 - (now - born) / life
+            if a > 0:
+                px = pixels[pos]
+                px[0] = max(px[0], color[0] * a); px[1] = max(px[1], color[1] * a); px[2] = max(px[2], color[2] * a)
+                alive.append([pos, born, color, life])
+        p['sparks'] = alive[-200:]
+
+        ledStrip.set_pixels([(min(255, int(r)), min(255, int(g)), min(255, int(b))) for r, g, b in pixels])
+
+    LED_MUSIC_STYLES = ['meter', 'party', 'halloween_party', 'ripples', 'pulse']
+    LED_MUSIC_STYLE_NAMES = {'meter': 'Meter', 'party': 'Party', 'halloween_party': 'Halloween Party',
+                             'ripples': 'Ripples', 'pulse': 'Pulse'}
 
     def music_style_name(self):
         return self.LED_MUSIC_STYLE_NAMES.get(self.led_music_style, self.led_music_style)
 
     def cycle_music_style(self):
-        """K key: meter -> ripples -> pulse -> meter. Returns a short
+        """K key: meter -> party -> halloween party -> ripples -> pulse. Returns a short
         description for the notification."""
         styles = self.LED_MUSIC_STYLES
         i = styles.index(self.led_music_style) if self.led_music_style in styles else -1
         self.led_music_style = styles[(i + 1) % len(styles)]
         self._meter = None   # start the meter fresh rather than mid-bounce
+        self._party = None
         message = "Music light style: " + self.music_style_name()
         if not self.led_music_lights:
             message += " (music lights are OFF - press L)"
@@ -1170,6 +1388,7 @@ class Slots(Widget):
         # (muted) through spins, so this stays in step with it.
         self._music_started_at = time.time()
         self._meter = None
+        self._party = None
 
     def _load_light_map(self, track_path):
         """Loads `<track>.lights.json` from make_light_maps.py, or returns
@@ -1379,7 +1598,7 @@ class Slots(Widget):
 
         label.text = text
         label.color = label_color
-        label.font_size = banner.height * 0.08  # small starting point for the pop-in animation
+        label.font_size = banner.height * style['size_frac']   # final size, rendered once
         banner.opacity = 0
 
         banner_anim = (Animation(opacity=1, duration=0.2)
@@ -1387,10 +1606,39 @@ class Slots(Widget):
                        + Animation(opacity=0, duration=0.4))
         banner_anim.start(banner)
 
-        target_size = banner.height * style['size_frac']
-        label_anim = Animation(font_size=target_size, duration=0.25, t='out_back')
-        label_anim.start(label)
+        self._pop_in(label)
         return 0.2 + hold + 0.4
+
+    POP_SECONDS = 0.25
+    POP_START = 0.3   # starting size, as a fraction of the final size
+
+    def _pop_in(self, label):
+        """The banner text's springy pop-in. Zooms the already-rendered
+        text up to full size (a cheap drawing transform) instead of
+        animating its font size, which re-renders the big text every frame
+        and made the start of each win stutter on the Pi."""
+        if not hasattr(label, '_pop_scale'):
+            with label.canvas.before:
+                PushMatrix()
+                label._pop_scale = Scale(1, 1, 1)
+            with label.canvas.after:
+                PopMatrix()
+            label._pop_event = None
+        if label._pop_event:
+            label._pop_event.cancel()
+        started = time.time()
+        ease = AnimationTransition.out_back
+
+        def step(dt):
+            p = min(1.0, (time.time() - started) / self.POP_SECONDS)
+            k = self.POP_START + (1 - self.POP_START) * ease(p)
+            label._pop_scale.origin = label.center
+            label._pop_scale.x = label._pop_scale.y = k
+            if p >= 1.0:
+                label._pop_event = None
+                return False
+        step(0)
+        label._pop_event = Clock.schedule_interval(step, 0)
 
     def _celebration_seconds(self):
         """How long the falling-icons celebration will run, or 0 if none
@@ -1502,7 +1750,7 @@ class GameScreen(Screen):
         ('S',     'Skip to the next song'),
         ('B',     'Next background picture'),
         ('L',     'Lights: follow the music / normal loop'),
-        ('K',     'Music light style: meter / ripples / pulse'),
+        ('K',     'Music light style: meter / party / halloween party / ...'),
         ('[  ]',  'Music lights earlier / later'),
         ('H',     'Show / hide this help'),
         ('Esc',   'Quit the game'),
