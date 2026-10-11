@@ -1983,14 +1983,16 @@ class Slots(Widget):
 
             self.play_result_sound(match_type, pumpkin_count)
 
-            banner_secs = self.show_win(match_type, payout, pumpkin_count,
-                                        min_seconds=self._jackpot_show_seconds)
             if match_type == 'jackpot':
                 self.start_jackpot_celebration(self._jackpot_show_seconds)
             elif match_type == '3 of a kind':
                 counts = Counter(self.landed)
                 matched_symbol = max(counts, key=counts.get)
                 self.start_triple_celebration(matched_symbol)
+            # The banner stays up as long as the animation (if there is one)
+            banner_secs = self.show_win(match_type, payout, pumpkin_count,
+                                        min_seconds=max(self._jackpot_show_seconds,
+                                                        self._celebration_seconds()))
 
             # Reels have stopped - end the spin lights. A win light show
             # takes over the strip for as long as the win is on screen;
