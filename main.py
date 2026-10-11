@@ -72,6 +72,7 @@ from kivy.lang import Builder
 from kivy.core.image import Image
 from kivy.core.window import Window
 from kivy.uix.widget import Widget
+from kivy.properties import NumericProperty
 from kivy.graphics import *
 from kivy.utils import get_color_from_hex
 
@@ -105,7 +106,7 @@ Builder.load_string('''
             opacity: 0
             canvas.before:
                 Color:
-                    rgba: 0.12, 0.12, 0.12, 0.85
+                    rgba: 0.12, 0.12, 0.12, app.banner_opacity
                 Rectangle:
                     pos: self.pos
                     size: self.size
@@ -2163,6 +2164,8 @@ class GameScreen(Screen):
         self.slots.update()
 
 class Slot(App):
+    # Darkness of the win banner's band (0 = clear, 1 = solid)
+    banner_opacity = NumericProperty(getattr(config, 'win_banner_opacity', 0.65))
 
     def build(self):
         self.root = viewport.Viewport(size=(1920, 1080), do_scale=True)

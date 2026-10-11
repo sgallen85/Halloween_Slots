@@ -18,6 +18,7 @@ gpio_button = 17                # GPIO number (not physical pin); wire the butto
 # ----------------------------------------------------------------------------
 pumpkin_symbol = 5              # which reel icon is the pumpkin (bonus + jackpot)
 win_banner_hold_seconds = 5.0   # how long the win banner stays up
+win_banner_opacity = 0.65       # win banner's dark band: 0 = see-through, 1 = solid
 win_sound_delay = 1.5           # seconds after the reels stop before the win sound plays
 win_volume = 1.0                # win/jackpot sounds, 0-1 (1 = the file's full level)
 spin_sounds_volume = 0.8        # spin and reel-stop sounds, 0-1; lower = wins stand out more
