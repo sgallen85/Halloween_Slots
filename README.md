@@ -151,10 +151,12 @@ keys last until the game restarts. To keep one, copy the value into
 ## Music and lights
 
 - Songs go in `assets/audio/background/` (mp3, ogg or wav). They play
-  (in order, or shuffled with **P**) after `idle_music_timeout` seconds
-  without a spin, or as soon as you press **M** (which also pauses and
-  plays). Spinning pauses it, and it picks up where it left off once
-  nobody has spun for `idle_music_timeout` seconds.
+  (in order, or shuffled with **P**) once things have been quiet for
+  `idle_music_timeout` seconds, or as soon as you press **M** (which also pauses and
+  plays). Spinning pauses it, and it picks up where it left off
+  `idle_music_timeout` seconds after the last spin or win sound ends.
+- **LEDs after a win:** the win light show runs until the win sounds
+  finish, then the strip goes back to the idle loop.
 - **LEDs when idle:** orange pulse, green pulse, purple runner over green,
   then the same with orange, on repeat.
 - **LEDs with music:** if a song has a beat map, the strip turns into a
@@ -197,7 +199,7 @@ most common changes:
 | `win_banner_hold_seconds` | How long the win banner stays up |
 | `win_sound_delay` | Pause after the reels stop before the win sound (default 2 s) |
 | `win_volume`, `spin_sounds_volume`, `music_volume` | Sound mix: wins at 1.0; spin sounds and music at 0.8 so wins stand out. The jackpot sound starts as soon as the spin sound ends. |
-| `start_with_music`, `idle_music_timeout` | When music starts |
+| `start_with_music`, `idle_music_timeout` | When music starts, and the pause after the last spin/win sound before it comes back |
 | `led_brightness`, `led_count` | LED strip brightness and length |
 | `led_pulse_seconds`, `led_runner_seconds` | Speed of the idle light loop |
 

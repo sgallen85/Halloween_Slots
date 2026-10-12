@@ -40,7 +40,7 @@ win_odds = {
 # ----------------------------------------------------------------------------
 # Music
 # ----------------------------------------------------------------------------
-idle_music_timeout = 25.0       # seconds with no spins before music starts on its own
+idle_music_timeout = 25.0       # pause after the last spin/win sound ends before music starts or resumes
 start_with_music = False        # False = music only starts when you press M
 music_playback = 'order'        # 'order' (by the number at the start of each file name) or 'shuffle'; P switches
 

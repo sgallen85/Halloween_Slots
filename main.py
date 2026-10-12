@@ -732,6 +732,8 @@ class Slots(Widget):
         self.music_volume = getattr(config, 'music_volume', self.spin_sounds_volume)
         self._win_sound_events = []   # [sound, clock event] scheduled but not started yet
         self._roll_ends_at = 0.0   # when the current spin sound finishes
+        self._sounds_end_at = 0.0  # when the last spin/win sound finishes; music waits
+                                   # idle_music_timeout after this
         self._jackpot_sound = None # music waits while this is due or playing
         self._jackpot_show_seconds = 0.0   # jackpot animation length (its music's length)
         self.music_user_paused = False
@@ -1821,8 +1823,9 @@ class Slots(Widget):
             return
         if self._jackpot_sound_running():
             return   # let the jackpot sound finish before the music comes back
-        if time.time() - self.last_activity_time < self.idle_music_timeout:
-            return
+        quiet_since = max(self.last_activity_time, self._sounds_end_at)
+        if time.time() - quiet_since < self.idle_music_timeout:
+            return   # wait this long after the last spin/win sound ends
         if self.music_sound is None:
             self._start_music_track()
         elif not self._music_audible() and self.music_sound.state == 'play':
@@ -1862,6 +1865,7 @@ class Slots(Widget):
                 snd.volume = self.spin_sounds_volume
                 snd.play()
                 self._roll_ends_at += max(0.0, getattr(snd, 'length', 0) or 0)
+            self._sounds_end_at = self._roll_ends_at
             self.start_time = time.time()
             self.last_time = time.time()
             self.landed = []
@@ -2135,7 +2139,7 @@ class Slots(Widget):
             self.game_logger.log_spin(self.landed, match_type,
                                        pumpkin_count, payout)
 
-            self.play_result_sound(match_type, pumpkin_count)
+            sounds_secs = self.play_result_sound(match_type, pumpkin_count)
 
             if match_type == 'jackpot':
                 self.start_jackpot_celebration(self._jackpot_show_seconds)
@@ -2149,10 +2153,11 @@ class Slots(Widget):
                                                         self._celebration_seconds()))
 
             # Reels have stopped - end the spin lights. A win light show
-            # takes over the strip for as long as the win is on screen;
-            # with no win, go straight back to idle.
+            # takes over the strip until the win sounds finish (or, if there
+            # are none, for as long as the win is on screen); with no win,
+            # go straight back to idle.
             self._led_spin_stop()
-            show_secs = max(banner_secs, self._celebration_seconds())
+            show_secs = sounds_secs or max(banner_secs, self._celebration_seconds())
             if match_type == 'jackpot':
                 self._led_flash(self.led_win_colors, show_secs, interval=0.1)
             elif match_type == '3 of a kind':
@@ -2174,8 +2179,10 @@ class Slots(Widget):
         Missing files are skipped, so missing audio never breaks a spin.
         They start win_sound_delay after the reels stop - except the jackpot,
         which starts as soon as the spin sound ends.
+        Returns seconds from now until the last of them ends (0 if none).
         """
         self._jackpot_show_seconds = 0.0
+        self._sounds_end_at = max(self._roll_ends_at, time.time())
         if match_type == 'jackpot':
             sequence = [self.sounds.get('jackpot') or self.sounds.get('win')]
         elif match_type in ('double', '3 of a kind'):
@@ -2189,7 +2196,7 @@ class Slots(Widget):
             sequence = [self.sounds.get('cash')]
         sequence = [snd for snd in sequence if snd]
         if not sequence:
-            return
+            return 0.0
 
         if match_type == 'jackpot':
             # Straight in as soon as the spin sound is done, and hold the
@@ -2210,6 +2217,8 @@ class Slots(Widget):
             entry[1] = Clock.schedule_once(partial(self._play_result_sound, entry), delay)
             self._win_sound_events.append(entry)
             delay += max(0.0, getattr(snd, 'length', 0) or 0)
+        self._sounds_end_at = max(self._sounds_end_at, time.time() + delay)
+        return delay
 
     def _play_result_sound(self, entry, dt):
         if entry in self._win_sound_events:
