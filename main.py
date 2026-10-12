@@ -734,7 +734,7 @@ class Slots(Widget):
         self._roll_ends_at = 0.0   # when the current spin sound finishes
         self._jackpot_sound = None # music waits while this is due or playing
         self._jackpot_show_seconds = 0.0   # jackpot animation length (its music's length)
-        self.music_muted = False
+        self.music_user_paused = False
         self.idle_music_timeout = getattr(config, 'idle_music_timeout', self.IDLE_MUSIC_TIMEOUT)
         self.music_playlist = []
         self.music_index = 0
@@ -790,6 +790,7 @@ class Slots(Widget):
         self.led_music_accent_threshold = getattr(config, 'led_music_accent_threshold', 95)
         self.led_music_offset = getattr(config, 'led_music_offset', 0.04)
         self._music_started_at = 0.0
+        self._music_paused_at = None  # when the song was paused (None = playing)
         self._music_map = None        # light map for the current track, or None
         self._led_music_mode = False  # whether the idle tick is following music
 
@@ -885,8 +886,8 @@ class Slots(Widget):
 
     def _music_lights_active(self):
         snd = self.music_sound
-        return (self.led_music_lights and self._music_map is not None and snd is not None
-                and snd.state == 'play' and snd.volume > 0 and self.state == 'idle')
+        return (self.led_music_lights and self._music_map is not None
+                and self._music_audible() and self.state == 'idle')
 
     def _led_idle_tick(self, dt):
         if self._music_lights_active():
@@ -894,7 +895,7 @@ class Slots(Widget):
             self._led_music_frame()
             return
         if self._led_music_mode:
-            # Music just stopped or was muted - restart the loop from the
+            # Music just stopped or was paused - restart the loop from the
             # top (fades up from dark) rather than jumping in mid-pulse.
             self._led_music_mode = False
             self._led_idle_phase_start = time.time()
@@ -1587,26 +1588,35 @@ class Slots(Widget):
     def music_playback_name(self):
         return 'shuffle' if self.music_playback == 'shuffle' else 'in order'
 
-    def toggle_music_mute(self):
-        """M key. Returns a short description of the result for the
-        on-screen notification."""
+    def toggle_music_pause(self):
+        """M key: pause / play. Returns a short description of the result
+        for the on-screen notification."""
         if not self.music_playlist:
             return "No background music found"
         if self.music_sound is None:
             # Nothing loaded yet - most likely start_with_music is False in
             # config.py, or the idle timeout just hasn't fired yet. Either
-            # way, start a fresh track now rather than muting nothing.
+            # way, start a fresh track now.
             self.start_music_now()
             return "Music ON - " + self.current_track_name()
-        self.music_muted = not self.music_muted
-        # If music is currently audible (idle, not already spin-muted),
-        # apply the change immediately rather than waiting for the next
-        # idle/spin transition.
+        if self._music_audible():
+            self.music_user_paused = True
+            self._pause_music()
+            return "Music paused"
         if self.state == 'idle':
-            self.music_sound.volume = 0 if self.music_muted else self.music_volume
-        if self.music_muted:
-            return "Music muted"
-        return "Music ON - " + self.current_track_name()
+            # Paused (by M, or still paused after a spin): play now rather
+            # than waiting for the idle timeout.
+            self.music_user_paused = False
+            self.music_enabled = True
+            self._resume_music()
+            self.last_activity_time = time.time() - self.idle_music_timeout
+            return "Music ON - " + self.current_track_name()
+        # Mid-spin: the song is already paused for the spin; this decides
+        # whether it comes back after the idle timeout.
+        self.music_user_paused = not self.music_user_paused
+        if self.music_user_paused:
+            return "Music paused"
+        return "Music will resume after the spin"
 
     def current_track_name(self):
         """Readable name of the current track, without its number:
@@ -1622,7 +1632,7 @@ class Slots(Widget):
         if not self.music_playlist:
             return
         self.music_enabled = True
-        self.music_muted = False
+        self.music_user_paused = False
         self._start_music_track()
         self.last_activity_time = time.time()
 
@@ -1633,21 +1643,50 @@ class Slots(Widget):
         if self.music_sound is not None:
             self.music_sound.stop()
         self._advance_music_track()
-        if self.music_muted:
-            return "Next track (muted) - " + self.current_track_name()
+        if self.music_user_paused:
+            return "Next track (paused) - " + self.current_track_name()
         return "Now playing - " + self.current_track_name()
 
     def _music_should_be_silent(self):
-        return self.music_muted or self.state != 'idle'
+        return self.music_user_paused or self.state != 'idle'
 
     def _pause_background_music(self):
-        # Mute rather than stop: Kivy's SDL2 provider doesn't reliably
-        # support seek()/get_pos() (confirmed - get_pos() always reports 0
-        # on this setup), so instead of stopping and trying to seek back,
-        # the track just keeps playing silently underneath a spin and picks
-        # up exactly where a listener would expect once unmuted.
-        if self.music_sound is not None and self.music_sound.state == 'play':
-            self.music_sound.volume = 0
+        """A spin started: pause the song; it picks up where it left off
+        after the idle timeout."""
+        self._pause_music()
+
+    def _music_audible(self):
+        snd = self.music_sound
+        return (snd is not None and snd.state == 'play'
+                and self._music_paused_at is None and snd.volume > 0)
+
+    def _can_pause(self):
+        """True if the song can really be paused (SDL's streaming player
+        with SDL_mixer found). Otherwise pausing falls back to muting the
+        song while it keeps playing underneath."""
+        return type(self.music_sound).__name__ == 'MusicSDL2' and self._sdl_mixer() is not None
+
+    def _pause_music(self):
+        snd = self.music_sound
+        if snd is None or snd.state != 'play' or self._music_paused_at is not None:
+            return
+        if self._can_pause():
+            self._sdl_mixer().Mix_PauseMusic()
+            self._music_paused_at = time.time()   # stops the song clock
+        else:
+            snd.volume = 0                        # keeps playing silently; clock keeps running
+
+    def _resume_music(self):
+        snd = self.music_sound
+        if snd is None:
+            return
+        if self._music_paused_at is not None:
+            # shift the song clock by the time spent paused
+            self._music_started_at += time.time() - self._music_paused_at
+            self._music_paused_at = None
+            self._meter = None
+            self._sdl_mixer().Mix_ResumeMusic()
+        snd.volume = self.music_volume
 
     @staticmethod
     def _open_music(path):
@@ -1669,7 +1708,7 @@ class Slots(Widget):
     @classmethod
     def _sdl_mixer(cls):
         """The SDL_mixer library Kivy is using, for Mix_SetMusicPosition
-        (Kivy's own MusicSDL2.seek does nothing). None if it can't be found
+        (Kivy's own MusicSDL2.seek does nothing) and pausing. None if it can't be found
         (e.g. not on Linux)."""
         if cls._mixer is None:
             cls._mixer = False
@@ -1680,6 +1719,10 @@ class Slots(Widget):
                     lib = ctypes.CDLL(libs[0])
                     lib.Mix_SetMusicPosition.argtypes = [ctypes.c_double]
                     lib.Mix_SetMusicPosition.restype = ctypes.c_int
+                    lib.Mix_PauseMusic.argtypes = []
+                    lib.Mix_PauseMusic.restype = None
+                    lib.Mix_ResumeMusic.argtypes = []
+                    lib.Mix_ResumeMusic.restype = None
                     cls._mixer = lib
             except Exception as e:
                 logging.info('song seeking unavailable: {}'.format(e))
@@ -1687,9 +1730,9 @@ class Slots(Widget):
 
     def music_position(self):
         """Seconds into the current song, from our own clock (Kivy can't
-        report it). The song keeps playing muted through spins, so this
-        stays in step."""
-        return max(0.0, time.time() - self._music_started_at)
+        report it). The clock stops while the song is paused."""
+        now = self._music_paused_at if self._music_paused_at is not None else time.time()
+        return max(0.0, now - self._music_started_at)
 
     def seek_music(self, seconds):
         """Left/right arrow keys: jump the current song by `seconds`.
@@ -1707,7 +1750,7 @@ class Slots(Widget):
         target = max(0.0, target)
         if mixer.Mix_SetMusicPosition(target) != 0:
             return "Couldn't seek this song"
-        self._music_started_at = time.time() - target   # keeps the music lights in step
+        self._music_started_at = (self._music_paused_at or time.time()) - target   # keeps the music lights in step
         self._meter = None
         stamp = lambda t: '{}:{:02d}'.format(int(t) // 60, int(t) % 60)
         total = ' / ' + stamp(length) if length else ''
@@ -1727,12 +1770,15 @@ class Slots(Widget):
             return
         self.music_sound = snd
         self._music_map = self._load_light_map(path)
-        snd.volume = 0 if self._music_should_be_silent() else self.music_volume
+        silent = self._music_should_be_silent()
+        snd.volume = 0 if silent else self.music_volume
         snd.play()
         # Kivy can't report playback position here, so the lights keep their
-        # own clock from the moment the track starts. The track keeps playing
-        # (muted) through spins, so this stays in step with it.
+        # own clock from the moment the track starts (stopped while paused).
         self._music_started_at = time.time()
+        self._music_paused_at = None
+        if silent:
+            self._pause_music()     # e.g. S while paused: next song, ready at 0:00
         self._meter = None
         self._party = None
 
@@ -1779,9 +1825,9 @@ class Slots(Widget):
             return
         if self.music_sound is None:
             self._start_music_track()
-        elif self.music_sound.volume == 0:
-            if not self.music_muted:
-                self.music_sound.volume = self.music_volume  # was muted during a spin - it never stopped, just unmute it
+        elif not self._music_audible() and self.music_sound.state == 'play':
+            if not self.music_user_paused:
+                self._resume_music()   # paused for a spin - carry on where it left off
         elif self.music_sound.state != 'play':
             self._advance_music_track()  # previous track finished naturally
 
@@ -2184,7 +2230,7 @@ class GameScreen(Screen):
     # Shown by the H key. Keep in step with on_keyboard_down below.
     SHORTCUTS = [
         ('Space', 'Spin (same as the big button)'),
-        ('M',     'Music on / mute'),
+        ('M',     'Music play / pause'),
         ('S',     'Skip to the next song'),
         ('<  >',  'Song back / forward 15 seconds'),
         ('P',     'Music: in order / shuffle'),
@@ -2204,7 +2250,7 @@ class GameScreen(Screen):
         elif key == "h":
             self.toggle_help()
         elif key == "m":
-            self.show_status(self.slots.toggle_music_mute())
+            self.show_status(self.slots.toggle_music_pause())
         elif key == "s":
             self.show_status(self.slots.skip_music_track())
         elif key in ("left", "right"):
@@ -2233,8 +2279,8 @@ class GameScreen(Screen):
             lines.append("[b][color=ffa040]{:<6}[/color][/b]  {}".format(key, action))
         if slots.music_sound is None:
             music = "off"
-        elif slots.music_muted:
-            music = "muted"
+        elif slots.music_user_paused:
+            music = "paused - " + slots.current_track_name()
         else:
             music = "on - " + slots.current_track_name()
         lines += [

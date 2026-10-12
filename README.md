@@ -115,7 +115,7 @@ and light settings.
 | Key | Does |
 |---|---|
 | Space | Spin (same as the button) |
-| M | Music on / mute |
+| M | Music play / pause |
 | S | Skip to the next song |
 | Left / Right arrows | Song back / forward 15 seconds |
 | P | Music: in order / shuffle |
@@ -151,9 +151,10 @@ keys last until the game restarts. To keep one, copy the value into
 ## Music and lights
 
 - Songs go in `assets/audio/background/` (mp3, ogg or wav). They play
-  shuffled after `idle_music_timeout` seconds without a spin, or as soon as
-  you press **M**. Spinning mutes it, and it comes back where it left off
-  once nobody has spun for `idle_music_timeout` seconds.
+  (in order, or shuffled with **P**) after `idle_music_timeout` seconds
+  without a spin, or as soon as you press **M** (which also pauses and
+  plays). Spinning pauses it, and it picks up where it left off once
+  nobody has spun for `idle_music_timeout` seconds.
 - **LEDs when idle:** orange pulse, green pulse, purple runner over green,
   then the same with orange, on repeat.
 - **LEDs with music:** if a song has a beat map, the strip turns into a
