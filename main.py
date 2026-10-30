@@ -264,7 +264,7 @@ TIER_STYLE = {
 
 # Text color used specifically for the "PUMPKIN BONUS!" banner (1 or 2
 # pumpkins). The jackpot tier keeps its own fiery color above, unaffected.
-PUMPKIN_BONUS_COLOR = (121/255, 128/255, 70/255, 1)
+PUMPKIN_BONUS_COLOR = (165/255, 178/255, 90/255, 1)
 PUMPKIN_BONUS_SIZE_FRAC = 0.20   # text size of the two-line bonus banner on a plain spin
 
 class Strip(Rectangle):
