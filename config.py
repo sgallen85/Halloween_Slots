@@ -49,7 +49,7 @@ music_playback = 'order'        # 'order' (by the number at the start of each fi
 # ----------------------------------------------------------------------------
 led_pin = 21                    # keep on GPIO21 (channel 0) - 18/19 clash with the audio
 led_channel = 0
-led_count = 115
+led_count = 132
 led_brightness = 100            # overall brightness 0-255; lower if the strip flickers
 
 # Idle loop: orange pulse, green pulse, purple runner over green, repeat with orange
