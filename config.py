@@ -49,7 +49,7 @@ music_playback = 'order'        # 'order' (by the number at the start of each fi
 # ----------------------------------------------------------------------------
 led_pin = 21                    # keep on GPIO21 (channel 0) - 18/19 clash with the audio
 led_channel = 0
-led_count = 115
+led_count = 132
 led_brightness = 100            # overall brightness 0-255; lower if the strip flickers
 
 # Idle loop: orange pulse, green pulse, purple runner over green, repeat with orange
@@ -77,3 +77,13 @@ led_music_meter_dim = 0.20      # 'meter': brightness between beats (0-1); flare
 led_music_accent_threshold = 65 # 'ripples' only: strong beats (0-100) ripple in the next color
 #led_music_colors = [(255, 50, 0), (0, 200, 15), (140, 0, 255)]
 #led_halloween_colors = [(255, 70, 0), (130, 0, 255), (60, 255, 0)]   # 'halloween_meter' / 'halloween_party' colors: orange, purple, green
+
+# Split music lights: the strip runs around the machine as back wrap, side,
+# front, side, back wrap. With led_split on, the front and each side play the
+# music show as their own section (sides mirror each other; wraps follow the
+# side). Idle, spin and win lights are unaffected. F toggles it.
+# led_count should equal front + 2 x side + 2 x wrap (46 + 76 + 10 = 132).
+led_split = False
+led_split_front = 46
+led_split_side = 38
+led_split_wrap = 5

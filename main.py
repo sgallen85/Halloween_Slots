@@ -795,6 +795,17 @@ class Slots(Widget):
         self._music_paused_at = None  # when the song was paused (None = playing)
         self._music_map = None        # light map for the current track, or None
         self._led_music_mode = False  # whether the idle tick is following music
+        # Split music lights: the strip runs around the machine as
+        #   back wrap, side, front, side, back wrap
+        # and with led_split on, each side and the front play the music
+        # show as their own little strip (the two sides mirror each other;
+        # the wraps carry on the side's color). Only the music lights split -
+        # the idle loop, spin and win lights use the whole strip as before.
+        # The F key toggles it while running.
+        self.led_split = getattr(config, 'led_split', False)
+        self.led_split_front = max(1, getattr(config, 'led_split_front', 46))
+        self.led_split_side = max(1, getattr(config, 'led_split_side', 38))
+        self.led_split_wrap = max(0, getattr(config, 'led_split_wrap', 5))
 
     def setup(self):
         for strip in self.strips:
@@ -963,7 +974,7 @@ class Slots(Widget):
         """
         light_map = self._music_map
         colors = self.led_music_colors
-        n = self.led_count
+        n = self._music_led_count()
         if not colors or n <= 0:
             return
         t = time.time() - self._music_started_at - self.led_music_offset
@@ -1056,7 +1067,7 @@ class Slots(Widget):
                     g += color[1] * a
                     b += color[2] * a
             pixels.append((min(255, int(r)), min(255, int(g)), min(255, int(b))))
-        ledStrip.set_pixels(pixels)
+        self._music_show(pixels)
 
     # Level meter feel
     LED_METER_FALL = 1.4        # how fast the bar drops back (fraction of full width per second)
@@ -1073,7 +1084,7 @@ class Slots(Widget):
         top of the movement (see led_music_meter_dim). With `pure` (the
         Halloween Meter style) the bar is solid base color and the peak dots
         solid accent color, so no in-between shades appear."""
-        n = self.led_count
+        n = self._music_led_count()
         level, peak, flash = self._meter_step(t, e, k)
 
         # Brightness pulses with the music too: the bar glows at a medium
@@ -1099,7 +1110,7 @@ class Slots(Widget):
                 level = 1.0
                 color = list(accent) if pure else [min(255, c * 0.6 + 100) for c in accent]  # brighter, whiter
             pixels.append((int(color[0] * level), int(color[1] * level), int(color[2] * level)))
-        ledStrip.set_pixels(pixels)
+        self._music_show(pixels)
 
     def _meter_step(self, t, e, k):
         """Advances the level meter's bounce one frame. Returns (level,
@@ -1162,7 +1173,7 @@ class Slots(Widget):
         those colors instead of the full rainbow.
         """
         light_map = self._music_map
-        n = self.led_count
+        n = self._music_led_count()
         now = time.time()
         p = self._party
         if p is None:
@@ -1321,7 +1332,48 @@ class Slots(Widget):
                 alive.append([pos, born, color, life])
         p['sparks'] = alive[-200:]
 
-        ledStrip.set_pixels([(min(255, int(r)), min(255, int(g)), min(255, int(b))) for r, g, b in pixels])
+        self._music_show([(min(255, int(r)), min(255, int(g)), min(255, int(b))) for r, g, b in pixels])
+
+    def _music_led_count(self):
+        """How many LEDs the music show draws: the front section in split
+        mode (then copied onto the sides), otherwise the whole strip."""
+        return self.led_split_front if self.led_split else self.led_count
+
+    def _music_show(self, pixels):
+        """Sends one music-lights frame to the strip, laid out around the
+        machine in split mode."""
+        if self.led_split:
+            pixels = self._split_layout(pixels)
+        ledStrip.set_pixels(pixels)
+
+    def _split_layout(self, front):
+        """Front frame -> whole strip: wrap, side, front, side, wrap. The
+        side is the front frame squeezed to the side's length. The first
+        side runs back to front and the second front to back, so the second
+        is reversed to make the two mirror each other; each wrap repeats the
+        color at the back end of its side."""
+        f, s, w = len(front), self.led_split_side, self.led_split_wrap
+        if not f:
+            return front
+        side = [front[min(f - 1, int((i + 0.5) * f / s))] for i in range(s)]
+        return [side[0]] * w + side + list(front) + side[::-1] + [side[0]] * w
+
+    def toggle_led_split(self):
+        """F key: music lights split into front / side sections, or one
+        show along the whole strip. Returns a notification message."""
+        self.led_split = not self.led_split
+        self._meter = None   # the show restarts at the new length
+        self._party = None
+        message = "Split lights: " + self.led_split_name()
+        if not self.led_music_lights:
+            message += " (music lights are OFF - press L)"
+        return message
+
+    def led_split_name(self):
+        if not self.led_split:
+            return "OFF (one show along the whole strip)"
+        return "ON (front {} + sides {} + wraps {})".format(
+            self.led_split_front, self.led_split_side, self.led_split_wrap)
 
     LED_MUSIC_STYLES = ['meter', 'halloween_meter', 'party', 'halloween_party', 'ripples', 'pulse']
     LED_MUSIC_STYLE_NAMES = {'meter': 'Meter', 'halloween_meter': 'Halloween Meter',
@@ -2246,6 +2298,7 @@ class GameScreen(Screen):
         ('B',     'Next background picture'),
         ('L',     'Lights: follow the music / normal loop'),
         ('K',     'Music light style: meter / halloween meter / party / ...'),
+        ('F',     'Music lights: split front / sides, or whole strip'),
         ('[  ]',  'Music lights earlier / later'),
         ('H',     'Show / hide this help'),
         ('Esc',   'Quit the game'),
@@ -2273,6 +2326,8 @@ class GameScreen(Screen):
             self.show_status("Music lights: {}".format("ON" if on else "OFF (normal loop)"))
         elif key == "k":
             self.show_status(self.slots.cycle_music_style())
+        elif key == "f":
+            self.show_status(self.slots.toggle_led_split())
         elif text in ('[', ']'):
             offset = self.slots.nudge_music_offset(-0.02 if text == '[' else 0.02)
             self.show_status("Light timing: {:+.2f}s".format(offset))
@@ -2299,6 +2354,7 @@ class GameScreen(Screen):
             "Playback:       " + slots.music_playback_name(),
             "Music lights:   " + ("ON" if slots.led_music_lights else "OFF (normal loop)"),
             "Light style:    " + slots.music_style_name(),
+            "Split lights:   " + slots.led_split_name(),
             "Light timing:   {:+.2f}s   (copy into config.py to keep)".format(slots.led_music_offset),
             "",
             "[color=aaaaaa]Press H to close[/color]",

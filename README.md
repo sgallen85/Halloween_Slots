@@ -122,6 +122,7 @@ and light settings.
 | B | Next background picture |
 | L | LEDs: follow the music / normal loop |
 | K | Music light style: meter / halloween meter / party / halloween party / ripples / pulse |
+| F | Music lights: split into front / side sections, or one show along the whole strip |
 | [ and ] | Shift the music lights earlier / later by 0.02 s |
 | H | Show / hide help |
 | Esc | Quit |
@@ -178,6 +179,13 @@ keys last until the game restarts. To keep one, copy the value into
   confetti.
 - **Halloween Party** (K again) is the same show using only orange,
   purple and green (`led_halloween_colors`).
+- **Split lights** (F, or `led_split` in `config.py`): the strip runs
+  around the machine as back wrap (5), side (38), front (46), side (38),
+  back wrap (5). With split on, the front and each side play the music
+  show as their own section, with the two sides mirroring each other and
+  the wraps following the side's color. Only the music lights split; the
+  idle, spin and win lights still run along the whole strip. Section
+  sizes are `led_split_front`, `led_split_side` and `led_split_wrap`.
 - **After adding songs**, build their beat maps (on the Pi or a Mac with
   ffmpeg and numpy):
   ```bash
@@ -200,7 +208,7 @@ most common changes:
 | `win_sound_delay` | Pause after the reels stop before the win sound (default 2 s) |
 | `win_volume`, `spin_sounds_volume`, `music_volume` | Sound mix: wins at 1.0; spin sounds and music at 0.8 so wins stand out. The jackpot sound starts as soon as the spin sound ends. |
 | `start_with_music`, `idle_music_timeout` | When music starts, and the pause after the last spin/win sound before it comes back |
-| `led_brightness`, `led_count` | LED strip brightness and length |
+| `led_brightness`, `led_count` | LED strip brightness and length (132 on this machine) |
 | `led_pulse_seconds`, `led_runner_seconds` | Speed of the idle light loop |
 
 To add **backgrounds**, drop 1920x1080 images into
