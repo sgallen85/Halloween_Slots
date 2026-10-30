@@ -256,7 +256,7 @@ class GameLogger:
 ##  [1.100, .942, .759, .598, .444, .273]
 
 TIER_STYLE = {
-    'spin':        {'color': (1, 1, 1, 1),      'size_frac': 0.20, 'hold': 0.3, 'text': '{} treats'},
+    'spin':        {'color': (1, 1, 1, 1),      'size_frac': 0.30, 'hold': 0.3, 'text': '{} treats'},
     'double':      {'color': (213/255, 135/255, 49/255, 1),  'size_frac': 0.24, 'hold': 0.7, 'text': 'DOUBLE!\n{} treats'},
     '3 of a kind': {'color': (1, 0.55, 0.1, 1),  'size_frac': 0.28, 'hold': 1.0, 'text': '3 OF A KIND!\n{} treats'},
     'jackpot':     {'color': (1, 0.25, 0.05, 1), 'size_frac': 0.34, 'hold': 2.0, 'text': 'JACKPOT!!!'},
@@ -265,6 +265,7 @@ TIER_STYLE = {
 # Text color used specifically for the "PUMPKIN BONUS!" banner (1 or 2
 # pumpkins). The jackpot tier keeps its own fiery color above, unaffected.
 PUMPKIN_BONUS_COLOR = (121/255, 128/255, 70/255, 1)
+PUMPKIN_BONUS_SIZE_FRAC = 0.20   # text size of the two-line bonus banner on a plain spin
 
 class Strip(Rectangle):
     # -.85 was tuned by eye for 6 symbols; WINDOW_REFERENCE_N is that 6. The
@@ -2073,9 +2074,12 @@ class Slots(Widget):
         if pumpkin_count in (1, 2) and match_type != 'jackpot':
             text = 'PUMPKIN BONUS!\n{} treats'.format(payout)
             label_color = PUMPKIN_BONUS_COLOR
+            # two lines, so the plain spin's bigger one-line size won't fit
+            size_frac = PUMPKIN_BONUS_SIZE_FRAC if match_type == 'spin' else style['size_frac']
         else:
             text = style['text'].format(payout)
             label_color = style['color']
+            size_frac = style['size_frac']
 
         # Flank the text with the pumpkin icon whenever a pumpkin's involved
         # at all (bonus tiers and jackpot), if that icon file is available.
@@ -2103,7 +2107,7 @@ class Slots(Widget):
 
         label.text = text
         label.color = label_color
-        label.font_size = banner.height * style['size_frac']   # final size, rendered once
+        label.font_size = banner.height * size_frac   # final size, rendered once
         banner.opacity = 0
 
         banner_anim = (Animation(opacity=1, duration=0.2)
