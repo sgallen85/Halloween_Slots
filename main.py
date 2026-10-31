@@ -211,7 +211,7 @@ class GameLogger:
     spreadsheet. Never raises - a logging problem should never crash the game."""
 
     FIELDS = ['timestamp', 'reel1', 'reel2', 'reel3',
-              'result', 'pumpkin_count', 'payout']
+              'result', 'pumpkin_count', 'payout', 'source']
 
     def __init__(self, log_dir='logs'):
         self.path = None
@@ -236,7 +236,8 @@ class GameLogger:
         with open(path, newline='') as f:
             return next(csv.reader(f), None) == self.FIELDS
 
-    def log_spin(self, landed, match_type, pumpkin_count, payout):
+    def log_spin(self, landed, match_type, pumpkin_count, payout, source='unknown'):
+        """`source` is what started the spin: 'button' (GPIO) or 'keyboard'."""
         if self.path is None:
             return
         row = [
@@ -245,6 +246,7 @@ class GameLogger:
             match_type,
             pumpkin_count,
             payout,
+            source,
         ]
         try:
             with open(self.path, 'a', newline='') as f:
@@ -1904,9 +1906,11 @@ class Slots(Widget):
         self.payline.pos = (0, self.size[1]/2)
         self.payline.size = (self.size[0], 7.5)
 
-    def start_spin(self):
+    def start_spin(self, source='unknown'):
+        """`source` ('button' or 'keyboard') is recorded in the game log."""
         if self.state == 'idle':
             self.state = 'STATE_SPINNING'
+            self.spin_source = source
             self.stopped = 0
             for _, event in self._win_sound_events:   # a new spin before the last result sounds started
                 event.cancel()
@@ -2193,7 +2197,8 @@ class Slots(Widget):
             self.last_match_type = match_type
             self.last_payout = payout
             self.game_logger.log_spin(self.landed, match_type,
-                                       pumpkin_count, payout)
+                                       pumpkin_count, payout,
+                                       getattr(self, 'spin_source', 'unknown'))
 
             sounds_secs = self.play_result_sound(match_type, pumpkin_count)
 
@@ -2312,7 +2317,7 @@ class GameScreen(Screen):
         key = keycode[1]
         if key == "spacebar":
             self.hide_help()
-            self.slots.start_spin()
+            self.slots.start_spin('keyboard')
         elif key == "h":
             self.toggle_help()
         elif key == "m":
@@ -2397,7 +2402,7 @@ class GameScreen(Screen):
     def update_timer(self, dt):
         if self.hardware_button.checkButton():
             self.hide_help()
-            self.slots.start_spin()
+            self.slots.start_spin('button')
         self.slots.update()
 
 class Slot(App):

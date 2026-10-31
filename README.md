@@ -147,7 +147,8 @@ keys last until the game restarts. To keep one, copy the value into
   (`jackpot_animation`: `'combo'`, `'fireworks'` for pumpkins only, or
   `'rain'`).
 - Every spin is saved to `logs/spins_YYYY-MM-DD.csv`, so you can count
-  treats afterwards.
+  treats afterwards. The `source` column says whether each spin came from
+  the big `button` or the `keyboard` (spacebar).
 
 ## Music and lights
 
