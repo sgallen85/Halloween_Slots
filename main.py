@@ -803,7 +803,7 @@ class Slots(Widget):
         # the wraps carry on the side's color). Only the music lights split -
         # the idle loop, spin and win lights use the whole strip as before.
         # The F key toggles it while running.
-        self.led_split = getattr(config, 'led_split', False)
+        self.led_split = getattr(config, 'led_split', True)
         self.led_split_front = max(1, getattr(config, 'led_split_front', 46))
         self.led_split_side = max(1, getattr(config, 'led_split_side', 38))
         self.led_split_wrap = max(0, getattr(config, 'led_split_wrap', 5))

@@ -179,7 +179,7 @@ keys last until the game restarts. To keep one, copy the value into
   confetti.
 - **Halloween Party** (K again) is the same show using only orange,
   purple and green (`led_halloween_colors`).
-- **Split lights** (F, or `led_split` in `config.py`): the strip runs
+- **Split lights** (on by default; F, or `led_split` in `config.py`): the strip runs
   around the machine as back wrap (5), side (38), front (46), side (38),
   back wrap (5). With split on, the front and each side play the music
   show as their own section, with the two sides mirroring each other and

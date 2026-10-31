@@ -81,9 +81,9 @@ led_music_accent_threshold = 65 # 'ripples' only: strong beats (0-100) ripple in
 # Split music lights: the strip runs around the machine as back wrap, side,
 # front, side, back wrap. With led_split on, the front and each side play the
 # music show as their own section (sides mirror each other; wraps follow the
-# side). Idle, spin and win lights are unaffected. F toggles it.
+# side). Idle, spin and win lights are unaffected. On by default; F toggles it.
 # led_count should equal front + 2 x side + 2 x wrap (46 + 76 + 10 = 132).
-led_split = False
+led_split = True
 led_split_front = 46
 led_split_side = 38
 led_split_wrap = 5
