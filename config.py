@@ -31,10 +31,10 @@ fireworks_rocket_chance = 0.67  # share of fireworks that shoot up as one icon a
 # Chance of each spin result (should add up to 1.0).
 # Normal odds:  {'none': 0.43, 'double': 0.30, 'triple': 0.25, 'jackpot': 0.02}
 win_odds = {
-    'none':    0.48,
-    'double':  0.35,
+    'none':    0.335,
+    'double':  0.50,
     'triple':  0.15,
-    'jackpot': 0.02,
+    'jackpot': 0.015,
 }
 
 # ----------------------------------------------------------------------------
